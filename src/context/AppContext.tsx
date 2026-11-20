@@ -1,599 +1,362 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
-import {
-  UserProfile,
-  ExpenseRequest,
-  DirectoriaAction,
-  ActionMovement,
-  FiscalAccountPeriod,
-  RoleType,
-  FiscalDecision,
-  PaymentPlanningMethod,
-  StageReview,
-} from '@/types'
+import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react'
 import {
   DEMO_PROFILES,
   INITIAL_ACTIONS,
   INITIAL_MOVEMENTS,
   INITIAL_REQUESTS,
   INITIAL_FISCAL_PERIODS,
+  INITIAL_FISCAL_QUARTER_PLAN,
+  INITIAL_FISCAL_MARKS,
 } from '@/data/initialData'
+import type {
+  ActionMovement,
+  ActionStatus,
+  DirectoriaAction,
+  ExpenseRequest,
+  FiscalAccountPeriod,
+  FiscalDecision,
+  StageDecision,
+  UserProfile,
+} from '@/types'
+import type { FiscalMovementMark, FiscalQuarterPlan } from '@/lib/fiscal'
 
-interface AppContextType {
+const STORAGE_KEY = 'sind-app-state-v3'
+
+interface AppState {
+  profile: UserProfile | null
+  actions: DirectoriaAction[]
+  movements: ActionMovement[]
+  requests: ExpenseRequest[]
+  fiscalPeriods: FiscalAccountPeriod[]
+  fiscalQuarterPlan: FiscalQuarterPlan
+  fiscalMarks: FiscalMovementMark[]
+}
+
+interface AppContextValue extends AppState {
+  profiles: UserProfile[]
   currentProfile: UserProfile
   setCurrentProfile: (profile: UserProfile) => void
-  profiles: UserProfile[]
-
-  // Requests
-  requests: ExpenseRequest[]
-  addRequest: (
-    req: Omit<ExpenseRequest, 'id' | 'createdAt' | 'status' | 'currentStage' | 'stageHistory'>,
-  ) => void
-  /** Etapa 1: decisão da Presidência (ou substituto) sobre o pedido */
-  decidePresidency: (id: string, decision: StageReview['decision'], justification?: string) => void
-  /** Etapa 2: Financeiro planeja o pagamento e decide (aprovar/reprovar/devolver) */
-  decideFinance: (
-    id: string,
-    decision: StageReview['decision'],
-    planning: {
-      paymentMethod: PaymentPlanningMethod
-      expectedDate: string
-      notes?: string
+  login: (profileId: string) => void
+  logout: () => void
+  addAction: (action: Omit<DirectoriaAction, 'id'>) => void
+  updateActionStatus: (actionId: string, status: ActionStatus) => void
+  addMovement: (movement: Omit<ActionMovement, 'id'>) => void
+  addRequest: (request: Omit<ExpenseRequest, 'id' | 'stageHistory'>) => void
+  resubmitRequest: (
+    requestId: string,
+    data: {
+      type: ExpenseRequest['type']
+      amount: number
+      reason: string
+      category: string
+      receiptName?: string
+      actionId?: string
     },
+  ) => void
+  decidePresidency: (requestId: string, decision: StageDecision, justification?: string) => void
+  decideFinance: (
+    requestId: string,
+    decision: StageDecision,
+    planning?: { paymentMethod: string; expectedDate: string; notes?: string },
     justification?: string,
   ) => void
-  /** Solicitante corrige e reenvia pedido devolvido — reinicia na Etapa 1 */
-  resubmitRequest: (
-    id: string,
-    updates: Partial<
-      Pick<ExpenseRequest, 'amount' | 'reason' | 'category' | 'receiptName' | 'actionId' | 'type'>
-    >,
-  ) => void
-  /** Liquidação do pagamento pelo Financeiro — exige aprovação das duas etapas */
   payRequest: (
-    id: string,
-    paymentData: {
-      paymentMethod: PaymentPlanningMethod
-      referenceCode?: string
-      notes?: string
-    },
+    requestId: string,
+    info: { paymentMethod: string; referenceCode: string; notes?: string },
   ) => void
-
-  // Actions
-  actions: DirectoriaAction[]
-  addAction: (action: Omit<DirectoriaAction, 'id' | 'spent'>) => void
-  updateActionStatus: (id: string, status: DirectoriaAction['status']) => void
-
-  // Movements
-  movements: ActionMovement[]
-  addMovement: (movement: Omit<ActionMovement, 'id'>) => void
-
-  // Fiscal Council
-  fiscalPeriods: FiscalAccountPeriod[]
   castFiscalVote: (periodId: string, decision: FiscalDecision, justification: string) => void
-
-  // Permissions helpers
+  updateFiscalQuarterPlan: (plan: FiscalQuarterPlan) => void
+  upsertFiscalMark: (mark: Omit<FiscalMovementMark, 'id' | 'markedAt'>) => void
+  removeFiscalMark: (markId: string) => void
   canAuthorizeAndPay: boolean
+  canManageActions: boolean
+  isFiscalMember: boolean
   isPresidency: boolean
   isFinance: boolean
-  canManageActions: boolean
-  canVoteFiscal: boolean
-  isFiscalMember: boolean
-  resetAllData: () => void
 }
 
-const STORAGE_KEYS = {
-  PROFILE: 'sindicato_current_profile',
-  // v2: fluxo de autorização em duas etapas (formato de ExpenseRequest mudou)
-  REQUESTS: 'sindicato_requests_v2',
-  ACTIONS: 'sindicato_actions_v1',
-  MOVEMENTS: 'sindicato_movements_v1',
-  FISCAL: 'sindicato_fiscal_v1',
+const AppContext = createContext<AppContextValue | null>(null)
+
+function loadState(): AppState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as AppState
+      return {
+        ...parsed,
+        profile: parsed.profile ?? null,
+        fiscalQuarterPlan: parsed.fiscalQuarterPlan ?? INITIAL_FISCAL_QUARTER_PLAN,
+        fiscalMarks: parsed.fiscalMarks ?? INITIAL_FISCAL_MARKS,
+      }
+    }
+  } catch {
+    // estado corrompido — recarrega dados de exemplo
+  }
+  return {
+    profile: null,
+    actions: INITIAL_ACTIONS,
+    movements: INITIAL_MOVEMENTS,
+    requests: INITIAL_REQUESTS,
+    fiscalPeriods: INITIAL_FISCAL_PERIODS,
+    fiscalQuarterPlan: INITIAL_FISCAL_QUARTER_PLAN,
+    fiscalMarks: INITIAL_FISCAL_MARKS,
+  }
 }
 
-const AppContext = createContext<AppContextType | undefined>(undefined)
-
-export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentProfile, setCurrentProfileState] = useState<UserProfile>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PROFILE)
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved)
-        const found = DEMO_PROFILES.find((p) => p.id === parsed.id)
-        if (found) return found
-      } catch (e) {
-        console.error(e)
-      }
-    }
-    return DEMO_PROFILES[0] // Default: Presidente
-  })
-
-  const [requests, setRequests] = useState<ExpenseRequest[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.REQUESTS)
-    if (saved) {
-      try {
-        return JSON.parse(saved)
-      } catch (e) {
-        console.error(e)
-      }
-    }
-    return INITIAL_REQUESTS
-  })
-
-  const [actions, setActions] = useState<DirectoriaAction[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.ACTIONS)
-    if (saved) {
-      try {
-        return JSON.parse(saved)
-      } catch (e) {
-        console.error(e)
-      }
-    }
-    return INITIAL_ACTIONS
-  })
-
-  const [movements, setMovements] = useState<ActionMovement[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.MOVEMENTS)
-    if (saved) {
-      try {
-        return JSON.parse(saved)
-      } catch (e) {
-        console.error(e)
-      }
-    }
-    return INITIAL_MOVEMENTS
-  })
-
-  const [fiscalPeriods, setFiscalPeriods] = useState<FiscalAccountPeriod[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.FISCAL)
-    if (saved) {
-      try {
-        return JSON.parse(saved)
-      } catch (e) {
-        console.error(e)
-      }
-    }
-    return INITIAL_FISCAL_PERIODS
-  })
-
-  // Sync to local storage
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(currentProfile))
-  }, [currentProfile])
+export function AppProvider({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<AppState>(loadState)
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(requests))
-  }, [requests])
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.ACTIONS, JSON.stringify(actions))
-  }, [actions])
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.MOVEMENTS, JSON.stringify(movements))
-  }, [movements])
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.FISCAL, JSON.stringify(fiscalPeriods))
-  }, [fiscalPeriods])
-
-  const setCurrentProfile = (profile: UserProfile) => {
-    setCurrentProfileState(profile)
-  }
-
-  // Permission logic according to union rules:
-  // APENAS Presidência e Finanças (ou seus substitutos) acessam a mesa de trabalho.
-  const canAuthorizeAndPay = [
-    'presidencia',
-    'presidencia_substituto',
-    'financas',
-    'financas_substituto',
-  ].includes(currentProfile.role)
-
-  // Etapa 1: somente Presidência (ou substituto) decide
-  const isPresidency = ['presidencia', 'presidencia_substituto'].includes(currentProfile.role)
-
-  // Etapa 2: somente Finanças (ou substituto) planeja/decide e liquida o pagamento
-  const isFinance = ['financas', 'financas_substituto'].includes(currentProfile.role)
-
-  // A diretoria executa e gerencia as ações (Presidência e Finanças também compõem a Diretoria Executiva)
-  const canManageActions = [
-    'diretoria',
-    'presidencia',
-    'presidencia_substituto',
-    'financas',
-    'financas_substituto',
-  ].includes(currentProfile.role)
-
-  // Os 3 conselheiros fiscais podem aprovar, aprovar com ressalva ou reprovar as contas
-  const isFiscalMember = ['conselho_fiscal_1', 'conselho_fiscal_2', 'conselho_fiscal_3'].includes(
-    currentProfile.role,
-  )
-
-  const canVoteFiscal = isFiscalMember
-
-  const whoAmI = `${currentProfile.name} (${currentProfile.roleLabel})`
-
-  // Request actions
-  const addRequest = (
-    req: Omit<ExpenseRequest, 'id' | 'createdAt' | 'status' | 'currentStage' | 'stageHistory'>,
-  ) => {
-    const newReq: ExpenseRequest = {
-      ...req,
-      id: `req-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      status: 'pendente',
-      currentStage: 1,
-      stageHistory: [],
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    } catch {
+      // quota — segue sem persistir
     }
-    setRequests((prev) => [newReq, ...prev])
-  }
+  }, [state])
 
-  const buildStageReview = (
-    decision: StageReview['decision'],
-    justification?: string,
-  ): StageReview => ({
-    stage: isPresidency ? 1 : 2,
-    decision,
-    by: whoAmI,
-    byRole: currentProfile.roleLabel,
-    at: new Date().toISOString(),
-    justification: justification?.trim() || undefined,
-  })
+  const value = useMemo<AppContextValue>(() => {
+    const nextId = (prefix: string) =>
+      `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 
-  // Etapa 1 — Presidência: aprovar (segue ao Financeiro), reprovar ou devolver p/ correção
-  const decidePresidency = (
-    id: string,
-    decision: StageReview['decision'],
-    justification?: string,
-  ) => {
-    if (!isPresidency) return
-    if (decision !== 'aprovado' && !justification?.trim()) return
+    const patchRequest = (id: string, patch: Partial<ExpenseRequest>) =>
+      setState((s) => ({
+        ...s,
+        requests: s.requests.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+      }))
 
-    setRequests((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r
-        // Guarda: só age sobre pedidos que estão na Etapa 1
-        if (r.currentStage !== 1 || r.status !== 'pendente') return r
+    const currentProfile: UserProfile =
+      state.profile ??
+      ({
+        id: 'anon',
+        name: 'Visitante',
+        role: 'filiado',
+        roleLabel: 'Visitante (sem cargo definido)',
+        roleGroup: 'Filiados',
+        description: 'Perfil provisório antes da escolha na tela inicial.',
+      } as UserProfile)
 
-        const review = buildStageReview(decision, justification)
-
-        if (decision === 'aprovado') {
-          return {
-            ...r,
-            status: 'aguardando_financeiro',
-            currentStage: 2,
-            presidenciaDecision: review,
-            stageHistory: [...r.stageHistory, review],
-            authorizedBy: review.by, // compatibilidade: primeira autorização
-            authorizedAt: review.at,
-            rejectionReason: undefined,
-            returnedBy: undefined,
-            returnedAt: undefined,
-          }
-        }
-
-        if (decision === 'devolvido') {
-          return {
-            ...r,
-            status: 'devolvido',
-            currentStage: 1,
-            presidenciaDecision: review,
-            stageHistory: [...r.stageHistory, review],
-            rejectionReason: justification?.trim(),
-            returnedBy: review.by,
-            returnedAt: review.at,
-          }
-        }
-
-        // reprovado
-        return {
-          ...r,
-          status: 'recusado',
-          currentStage: 1,
-          presidenciaDecision: review,
-          stageHistory: [...r.stageHistory, review],
-          rejectionReason: justification?.trim(),
-        }
-      }),
-    )
-  }
-
-  // Etapa 2 — Financeiro: planeja o pagamento e decide; liquidação só depois de ambos aprovarem
-  const decideFinance = (
-    id: string,
-    decision: StageReview['decision'],
-    planning: {
-      paymentMethod: PaymentPlanningMethod
-      expectedDate: string
-      notes?: string
-    },
-    justification?: string,
-  ) => {
-    if (!isFinance) return
-    if (decision !== 'aprovado' && !justification?.trim()) return
-
-    setRequests((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r
-        // Guarda: só age sobre pedidos na Etapa 2
-        if (r.currentStage !== 2 || r.status !== 'aguardando_financeiro') return r
-
-        const review = buildStageReview(decision, justification)
-        const planningData = {
-          plannedBy: whoAmI,
-          plannedAt: new Date().toISOString(),
-          paymentMethod: planning.paymentMethod,
-          expectedDate: planning.expectedDate,
-          notes: planning.notes?.trim() || undefined,
-        }
-
-        if (decision === 'aprovado') {
-          // Ambos aprovaram → pronto para liquidação
-          return {
-            ...r,
-            status: 'aguardando_pagamento',
-            currentStage: 2,
-            financeDecision: review,
-            paymentPlanning: planningData,
-            stageHistory: [...r.stageHistory, review],
-            rejectionReason: undefined,
-            returnedBy: undefined,
-            returnedAt: undefined,
-          }
-        }
-
-        if (decision === 'devolvido') {
-          return {
-            ...r,
-            status: 'devolvido',
-            currentStage: 1,
-            financeDecision: review,
-            stageHistory: [...r.stageHistory, review],
-            rejectionReason: justification?.trim(),
-            returnedBy: review.by,
-            returnedAt: review.at,
-          }
-        }
-
-        // reprovado
-        return {
-          ...r,
-          status: 'recusado',
-          currentStage: 2,
-          financeDecision: review,
-          stageHistory: [...r.stageHistory, review],
-          rejectionReason: justification?.trim(),
-        }
-      }),
-    )
-  }
-
-  // Solicitante corrige e reenvia pedido devolvido — reinicia na Etapa 1 (Presidência)
-  const resubmitRequest = (
-    id: string,
-    updates: Partial<
-      Pick<ExpenseRequest, 'amount' | 'reason' | 'category' | 'receiptName' | 'actionId' | 'type'>
-    >,
-  ) => {
-    setRequests((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r
-        // Guarda: apenas o próprio solicitante, apenas pedidos devolvidos
-        if (r.applicantId !== currentProfile.id) return r
-        if (r.status !== 'devolvido') return r
-
-        return {
-          ...r,
-          ...updates,
-          status: 'pendente',
-          currentStage: 1,
-          rejectionReason: undefined,
-          returnedBy: undefined,
-          returnedAt: undefined,
-          // Reinicia o fluxo: decisões anteriores ficam no histórico; decisões correntes são limpas
-          presidenciaDecision: undefined,
-          financeDecision: undefined,
-        }
-      }),
-    )
-  }
-
-  // Liquidação — somente Financeiro e somente quando presidente E financeiro aprovaram
-  const payRequest = (
-    id: string,
-    paymentData: {
-      paymentMethod: PaymentPlanningMethod
-      referenceCode?: string
-      notes?: string
-    },
-  ) => {
-    if (!isFinance) return
-
-    let targetReq: ExpenseRequest | undefined
-
-    setRequests((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r
-        // Guarda: exige aprovação da Presidência (etapa 1) E do Financeiro (etapa 2)
-        const bothApproved =
-          r.presidenciaDecision?.decision === 'aprovado' &&
-          r.financeDecision?.decision === 'aprovado'
-        if (!bothApproved || r.status !== 'aguardando_pagamento') return r
-
-        targetReq = r
-        return {
-          ...r,
+    return {
+      ...state,
+      profiles: DEMO_PROFILES,
+      currentProfile,
+      setCurrentProfile: (profile) => setState((s) => ({ ...s, profile })),
+      login: (profileId) =>
+        setState((s) => ({
+          ...s,
+          profile: DEMO_PROFILES.find((p) => p.id === profileId) ?? null,
+        })),
+      logout: () => setState((s) => ({ ...s, profile: null })),
+      addAction: (action) =>
+        setState((s) => ({
+          ...s,
+          actions: [...s.actions, { ...action, id: nextId('act') }],
+        })),
+      updateActionStatus: (actionId, status) =>
+        setState((s) => ({
+          ...s,
+          actions: s.actions.map((a) => (a.id === actionId ? { ...a, status } : a)),
+        })),
+      addMovement: (movement) =>
+        setState((s) => ({
+          ...s,
+          movements: [...s.movements, { ...movement, id: nextId('mov') }],
+        })),
+      addRequest: (request) =>
+        setState((s) => ({
+          ...s,
+          requests: [{ ...request, id: nextId('req'), stageHistory: [] }, ...s.requests],
+        })),
+      resubmitRequest: (requestId, data) =>
+        setState((s) => ({
+          ...s,
+          requests: s.requests.map((r) =>
+            r.id === requestId
+              ? {
+                  ...r,
+                  ...data,
+                  status: 'pendente' as const,
+                  currentStage: 1 as const,
+                  stageHistory: [
+                    ...r.stageHistory,
+                    {
+                      stage: 1 as const,
+                      decision: 'devolvido' as const,
+                      by: 'Sistema',
+                      byRole: 'Reenvio do solicitante',
+                      at: new Date().toISOString(),
+                      justification: 'Pedido corrigido e reenviado pelo solicitante',
+                    },
+                  ],
+                  returnedBy: undefined,
+                  returnedAt: undefined,
+                  rejectionReason: undefined,
+                }
+              : r,
+          ),
+        })),
+      decidePresidency: (requestId, decision, justification) =>
+        setState((s) => ({
+          ...s,
+          requests: s.requests.map((r) => {
+            if (r.id !== requestId) return r
+            const entry = {
+              stage: 1 as const,
+              decision,
+              by: currentProfile.name,
+              byRole: currentProfile.roleLabel,
+              at: new Date().toISOString(),
+              justification,
+            }
+            const base: ExpenseRequest = {
+              ...r,
+              stageHistory: [...r.stageHistory, entry],
+              presidenciaDecision: entry,
+            }
+            if (decision === 'aprovado') {
+              return {
+                ...base,
+                status: 'aguardando_financeiro' as const,
+                currentStage: 2 as const,
+                authorizedBy: currentProfile.name,
+                authorizedAt: entry.at,
+              }
+            }
+            if (decision === 'reprovado') {
+              return { ...base, status: 'recusado' as const, rejectionReason: justification }
+            }
+            return {
+              ...base,
+              status: 'devolvido' as const,
+              currentStage: 1 as const,
+              returnedBy: currentProfile.name,
+              returnedAt: entry.at,
+              rejectionReason: justification,
+            }
+          }),
+        })),
+      decideFinance: (requestId, decision, planning, justification) =>
+        setState((s) => ({
+          ...s,
+          requests: s.requests.map((r) => {
+            if (r.id !== requestId) return r
+            const entry = {
+              stage: 2 as const,
+              decision,
+              by: currentProfile.name,
+              byRole: currentProfile.roleLabel,
+              at: new Date().toISOString(),
+              justification,
+            }
+            const base: ExpenseRequest = {
+              ...r,
+              stageHistory: [...r.stageHistory, entry],
+              financeDecision: entry,
+            }
+            if (decision === 'aprovado') {
+              return {
+                ...base,
+                status: 'aguardando_pagamento' as const,
+                paymentPlanning: planning
+                  ? {
+                      plannedBy: currentProfile.name,
+                      plannedAt: entry.at,
+                      paymentMethod: planning.paymentMethod as PaymentPlanning['paymentMethod'],
+                      expectedDate: planning.expectedDate,
+                      notes: planning.notes,
+                    }
+                  : undefined,
+              }
+            }
+            if (decision === 'reprovado') {
+              return { ...base, status: 'recusado' as const, rejectionReason: justification }
+            }
+            return {
+              ...base,
+              status: 'devolvido' as const,
+              currentStage: 1 as const,
+              returnedBy: currentProfile.name,
+              returnedAt: entry.at,
+              rejectionReason: justification,
+            }
+          }),
+        })),
+      payRequest: (requestId, info) =>
+        patchRequest(requestId, {
           status: 'pago',
           paymentInfo: {
-            paidBy: whoAmI,
+            paidBy: currentProfile.name,
             paidAt: new Date().toISOString(),
-            ...paymentData,
+            paymentMethod: info.paymentMethod as PaymentPlanning['paymentMethod'],
+            referenceCode: info.referenceCode,
+            notes: info.notes,
           },
-        }
-      }),
-    )
-
-    // Automatically generate a movement for the action if action is linked, or general
-    if (targetReq) {
-      const newMovement: ActionMovement = {
-        id: `mov-pay-${Date.now()}`,
-        actionId: targetReq.actionId || 'geral',
-        type: 'despesa',
-        category: targetReq.category || 'Ressarcimento / Adiantamento',
-        description: `Pgto ${targetReq.type === 'adiantamento' ? 'Adiantamento' : 'Ressarcimento'}: ${targetReq.reason} (${targetReq.applicantName})`,
-        amount: targetReq.amount,
-        date: new Date().toISOString().split('T')[0],
-        paymentMethod: paymentData.paymentMethod,
-      }
-      setMovements((prev) => [newMovement, ...prev])
-
-      // If linked to an action, update its spent total
-      if (targetReq.actionId && targetReq.actionId !== 'geral') {
-        setActions((prev) =>
-          prev.map((act) =>
-            act.id === targetReq?.actionId ? { ...act, spent: act.spent + targetReq.amount } : act,
+        }),
+      castFiscalVote: (periodId, decision, justification) =>
+        setState((s) => ({
+          ...s,
+          fiscalPeriods: s.fiscalPeriods.map((p) =>
+            p.id === periodId
+              ? {
+                  ...p,
+                  votes: {
+                    ...p.votes,
+                    [currentProfile.role]: {
+                      councilMemberId: currentProfile.role,
+                      councilMemberName: currentProfile.name,
+                      decision,
+                      justification,
+                      votedAt: new Date().toISOString(),
+                    },
+                  },
+                }
+              : p,
           ),
-        )
-      }
-    }
-  }
-
-  // Action methods
-  const addAction = (actionData: Omit<DirectoriaAction, 'id' | 'spent'>) => {
-    const newAction: DirectoriaAction = {
-      ...actionData,
-      id: `act-${Date.now()}`,
-      spent: 0,
-    }
-    setActions((prev) => [newAction, ...prev])
-  }
-
-  const updateActionStatus = (id: string, status: DirectoriaAction['status']) => {
-    setActions((prev) => prev.map((act) => (act.id === id ? { ...act, status } : act)))
-  }
-
-  // Movement methods
-  const addMovement = (movementData: Omit<ActionMovement, 'id'>) => {
-    const newMovement: ActionMovement = {
-      ...movementData,
-      id: `mov-${Date.now()}`,
-    }
-    setMovements((prev) => [newMovement, ...prev])
-
-    // Update action spent if it is a despesa and linked to action
-    if (
-      newMovement.type === 'despesa' &&
-      newMovement.actionId &&
-      newMovement.actionId !== 'geral'
-    ) {
-      setActions((prev) =>
-        prev.map((act) =>
-          act.id === newMovement.actionId ? { ...act, spent: act.spent + newMovement.amount } : act,
-        ),
-      )
-    }
-  }
-
-  // Fiscal vote
-  const castFiscalVote = (periodId: string, decision: FiscalDecision, justification: string) => {
-    if (!canVoteFiscal) return
-    const memberRole = currentProfile.role as
-      | 'conselho_fiscal_1'
-      | 'conselho_fiscal_2'
-      | 'conselho_fiscal_3'
-
-    setFiscalPeriods((prev) =>
-      prev.map((period) => {
-        if (period.id !== periodId) return period
-
-        const updatedVotes = {
-          ...period.votes,
-          [memberRole]: {
-            councilMemberId: memberRole,
-            councilMemberName: currentProfile.name,
-            decision,
-            justification,
-            votedAt: new Date().toISOString(),
-          },
-        }
-
-        // Check if all 3 have voted to calculate overall status
-        const voteCount = Object.keys(updatedVotes).length
-        let finalStatus = period.status
-
-        if (voteCount === 3) {
-          const decisions = Object.values(updatedVotes).map((v) => v.decision)
-          const rejectedCount = decisions.filter((d) => d === 'reprovado').length
-          const withCaveatsCount = decisions.filter((d) => d === 'aprovado_com_ressalva').length
-
-          if (rejectedCount >= 2) {
-            finalStatus = 'reprovada'
-          } else if (rejectedCount === 1 || withCaveatsCount >= 1) {
-            finalStatus = 'aprovada_com_ressalvas'
-          } else {
-            finalStatus = 'aprovada'
+        })),
+      updateFiscalQuarterPlan: (plan) => setState((s) => ({ ...s, fiscalQuarterPlan: plan })),
+      upsertFiscalMark: (mark) =>
+        setState((s) => {
+          const existing = s.fiscalMarks.find(
+            (m) => m.targetId === mark.targetId && m.targetType === mark.targetType,
+          )
+          if (existing) {
+            return {
+              ...s,
+              fiscalMarks: s.fiscalMarks.map((m) =>
+                m.id === existing.id ? { ...m, ...mark, markedAt: new Date().toISOString() } : m,
+              ),
+            }
           }
-        }
+          return {
+            ...s,
+            fiscalMarks: [
+              ...s.fiscalMarks,
+              { ...mark, id: nextId('fmark'), markedAt: new Date().toISOString() },
+            ],
+          }
+        }),
+      removeFiscalMark: (markId) =>
+        setState((s) => ({
+          ...s,
+          fiscalMarks: s.fiscalMarks.filter((m) => m.id !== markId),
+        })),
+      canAuthorizeAndPay: [
+        'presidencia',
+        'presidencia_substituto',
+        'financas',
+        'financas_substituto',
+      ].includes(currentProfile.role),
+      canManageActions: ['diretoria'].includes(currentProfile.role),
+      isFiscalMember: currentProfile.role.startsWith('conselho_fiscal'),
+      isPresidency: ['presidencia', 'presidencia_substituto'].includes(currentProfile.role),
+      isFinance: ['financas', 'financas_substituto'].includes(currentProfile.role),
+    }
+  }, [state])
 
-        return {
-          ...period,
-          votes: updatedVotes,
-          status: finalStatus,
-        }
-      }),
-    )
-  }
-
-  const resetAllData = () => {
-    localStorage.removeItem(STORAGE_KEYS.REQUESTS)
-    localStorage.removeItem(STORAGE_KEYS.ACTIONS)
-    localStorage.removeItem(STORAGE_KEYS.MOVEMENTS)
-    localStorage.removeItem(STORAGE_KEYS.FISCAL)
-    localStorage.removeItem(STORAGE_KEYS.PROFILE)
-    setRequests(INITIAL_REQUESTS)
-    setActions(INITIAL_ACTIONS)
-    setMovements(INITIAL_MOVEMENTS)
-    setFiscalPeriods(INITIAL_FISCAL_PERIODS)
-    setCurrentProfileState(DEMO_PROFILES[0])
-  }
-
-  return (
-    <AppContext.Provider
-      value={{
-        currentProfile,
-        setCurrentProfile,
-        profiles: DEMO_PROFILES,
-        requests,
-        addRequest,
-        decidePresidency,
-        decideFinance,
-        resubmitRequest,
-        payRequest,
-        actions,
-        addAction,
-        updateActionStatus,
-        movements,
-        addMovement,
-        fiscalPeriods,
-        castFiscalVote,
-        canAuthorizeAndPay,
-        isPresidency,
-        isFinance,
-        canManageActions,
-        canVoteFiscal,
-        isFiscalMember,
-        resetAllData,
-      }}
-    >
-      {children}
-    </AppContext.Provider>
-  )
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }
 
-export const useApp = () => {
-  const context = useContext(AppContext)
-  if (!context) {
-    throw new Error('useApp must be used within an AppProvider')
-  }
-  return context
+export function useApp() {
+  const ctx = useContext(AppContext)
+  if (!ctx) throw new Error('useApp deve ser usado dentro de AppProvider')
+  return ctx
 }

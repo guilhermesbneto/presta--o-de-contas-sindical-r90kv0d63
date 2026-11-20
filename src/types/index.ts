@@ -143,6 +143,9 @@ export interface DirectoriaAction {
 
 export type FiscalDecision = 'aprovado' | 'aprovado_com_ressalva' | 'reprovado'
 
+/** Marcação individual de um lançamento pelo Conselheiro Fiscal */
+export type FiscalMarkStatus = 'sem_ressalva' | 'com_ressalva' | 'reprovado'
+
 export interface FiscalVote {
   councilMemberId: 'conselho_fiscal_1' | 'conselho_fiscal_2' | 'conselho_fiscal_3'
   councilMemberName: string

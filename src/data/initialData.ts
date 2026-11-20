@@ -5,6 +5,7 @@ import {
   ActionMovement,
   FiscalAccountPeriod,
 } from '@/types'
+import { FiscalMovementMark, FiscalQuarterPlan, QUARTER_SHORT, quarterRange } from '@/lib/fiscal'
 
 export const DEMO_PROFILES: UserProfile[] = [
   {
@@ -528,6 +529,7 @@ export const INITIAL_REQUESTS: ExpenseRequest[] = [
       'Ressarcimento de assinatura de plataforma de design por 12 meses paga em cartão pessoal.',
     category: 'Comunicação e Mídia',
     receiptName: 'fatura_plataforma_design_2025.pdf',
+    actionId: 'act-5',
     status: 'recusado',
     currentStage: 2,
     stageHistory: [
@@ -569,6 +571,60 @@ export const INITIAL_REQUESTS: ExpenseRequest[] = [
     authorizedBy: 'Carlos Eduardo Silveira (Presidente)',
     authorizedAt: '2025-02-14T10:20:00Z',
     createdAt: '2025-02-13T09:00:00Z',
+  },
+]
+
+export const INITIAL_FISCAL_QUARTER_PLAN: FiscalQuarterPlan = {
+  id: 'plan-2025',
+  year: 2025,
+  openForMarking: true,
+  // 1º, 2º e 3º trimestres: um conselheiro titular por trimestre.
+  // 4º trimestre: revisão em conjunto pelos três (colegiada).
+  assignments: {
+    '1': ['conselho_fiscal_1'],
+    '2': ['conselho_fiscal_2'],
+    '3': ['conselho_fiscal_3'],
+    '4': ['conselho_fiscal_1', 'conselho_fiscal_2', 'conselho_fiscal_3'],
+  },
+}
+
+/** Marcas individuais de lançamentos já registradas pelos conselheiros (dados de exemplo) */
+export const INITIAL_FISCAL_MARKS: FiscalMovementMark[] = [
+  {
+    id: 'fmark-1',
+    targetId: 'mov-2',
+    targetType: 'movimento',
+    status: 'reprovado',
+    comment:
+      'Locação de tenda sem nota fiscal em nome do sindicato — exigida a regularização do documento fiscal.',
+    markedBy: 'Dr. Valter Nogueira',
+    markedByRole: '1º Conselheiro Fiscal',
+    markedAt: '2025-02-10T15:30:00Z',
+    quarter: 1,
+  },
+  {
+    id: 'fmark-2',
+    targetId: 'mov-6',
+    targetType: 'movimento',
+    status: 'com_ressalva',
+    comment:
+      'Quantidade de refeições superior ao número de delegados inscritos — recomendo ajuste na planilha de frequência.',
+    markedBy: 'Dra. Sônia Regina Prado',
+    markedByRole: '2ª Conselheira Fiscal',
+    markedAt: '2025-02-11T10:45:00Z',
+    quarter: 1,
+  },
+  {
+    id: 'fmark-3',
+    targetId: 'mov-4',
+    targetType: 'movimento',
+    status: 'com_ressalva',
+    comment:
+      'Cotação prévia de preços não anexada — recomendo incluir orçamentos comparativos em compras acima de R$ 10 mil.',
+    markedBy: 'Dra. Sônia Regina Prado',
+    markedByRole: '2ª Conselheira Fiscal',
+    markedAt: '2025-01-15T09:20:00Z',
+    quarter: 4,
   },
 ]
 
