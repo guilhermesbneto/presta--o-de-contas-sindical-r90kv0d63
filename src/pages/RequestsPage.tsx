@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useApp } from '@/context/AppContext'
-import { formatCurrency, formatDateTime } from '@/lib/formatters'
+import { formatCurrency, formatDate, formatDateTime } from '@/lib/formatters'
+import { stageLabel, stageBadgeClass } from '@/lib/requestStages'
 import { RequestType, ExpenseRequest } from '@/types'
 import {
   FileSpreadsheet,
@@ -13,10 +14,13 @@ import {
   Send,
   HelpCircle,
   FileCheck2,
+  UserCog,
   Eye,
   Calendar,
   User,
   ExternalLink,
+  AlertTriangle,
+  Pencil,
 } from 'lucide-react'
 import {
   Card,
@@ -50,7 +54,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
 
 export default function RequestsPage() {
-  const { currentProfile, requests, addRequest, actions } = useApp()
+  const { currentProfile, requests, addRequest, resubmitRequest, actions } = useApp()
   const { toast } = useToast()
 
   // Form states
@@ -61,9 +65,33 @@ export default function RequestsPage() {
   const [actionId, setActionId] = useState<string>('geral')
   const [receiptFileName, setReceiptFileName] = useState('')
 
+  // Edição/reenvio de pedido devolvido para correção
+  const [editingRequest, setEditingRequest] = useState<ExpenseRequest | null>(null)
+
   // View modal for details / receipt
   const [selectedRequest, setSelectedRequest] = useState<ExpenseRequest | null>(null)
   const [activeTab, setActiveTab] = useState<'minhas' | 'todas'>('minhas')
+
+  const startEditing = (req: ExpenseRequest) => {
+    setEditingRequest(req)
+    setRequestType(req.type)
+    setAmount(String(req.amount))
+    setReason(req.reason)
+    setCategory(req.category)
+    setActionId(req.actionId ?? 'geral')
+    setReceiptFileName(req.receiptName ?? '')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const cancelEditing = () => {
+    setEditingRequest(null)
+    setRequestType('ressarcimento')
+    setAmount('')
+    setReason('')
+    setCategory('Transporte e Deslocamento')
+    setActionId('geral')
+    setReceiptFileName('')
+  }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -115,6 +143,26 @@ export default function RequestsPage() {
       return
     }
 
+    if (editingRequest) {
+      resubmitRequest(editingRequest.id, {
+        type: requestType,
+        amount: parsedAmount,
+        reason: reason.trim(),
+        category,
+        receiptName: receiptFileName,
+        actionId: actionId === 'geral' ? undefined : actionId,
+      })
+
+      toast({
+        title: 'Pedido corrigido e reenviado',
+        description: `O pedido reenviado (${formatCurrency(parsedAmount)}) voltou à fila da Presidência (Etapa 1) para nova deliberação.`,
+      })
+
+      cancelEditing()
+      setActiveTab('minhas')
+      return
+    }
+
     addRequest({
       applicantName: currentProfile.name,
       applicantRole: currentProfile.roleLabel,
@@ -141,31 +189,13 @@ export default function RequestsPage() {
     setActiveTab('minhas')
   }
 
-  const statusBadges: Record<
-    string,
-    { label: string; class: string; icon: React.ComponentType<{ className?: string }> }
-  > = {
-    pendente: {
-      label: 'Pendente de Análise',
-      class: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300',
-      icon: Clock,
-    },
-    autorizado: {
-      label: 'Autorizado (Aguardando Pagamento)',
-      class: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950 dark:text-blue-300',
-      icon: FileCheck2,
-    },
-    pago: {
-      label: 'Pago / Liquidado',
-      class:
-        'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300',
-      icon: CheckCircle2,
-    },
-    recusado: {
-      label: 'Recusado',
-      class: 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300',
-      icon: XCircle,
-    },
+  const statusIcons: Record<string, React.ComponentType<{ className?: string }>> = {
+    pendente: Clock,
+    aguardando_financeiro: UserCog,
+    aguardando_pagamento: FileCheck2,
+    devolvido: AlertTriangle,
+    recusado: XCircle,
+    pago: CheckCircle2,
   }
 
   const myRequests = requests.filter((r) => r.applicantId === currentProfile.id)
@@ -193,15 +223,46 @@ export default function RequestsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Form Card (5 cols on lg) */}
-        <Card className="lg:col-span-5 shadow-xs border-primary/20">
+        <Card
+          className={`lg:col-span-5 shadow-xs border-primary/20 ${
+            editingRequest ? 'border-orange-300 dark:border-orange-800' : ''
+          }`}
+        >
           <CardHeader className="p-4 sm:p-5 pb-2">
             <CardTitle className="text-base font-bold flex items-center gap-2">
-              <Plus className="w-4 h-4 text-primary" />
-              Novo Pedido à Presidência
+              {editingRequest ? (
+                <>
+                  <Pencil className="w-4 h-4 text-orange-600" />
+                  Corrigir Pedido Devolvido
+                </>
+              ) : (
+                <>
+                  <Plus className="w-4 h-4 text-primary" />
+                  Novo Pedido à Presidência
+                </>
+              )}
             </CardTitle>
             <CardDescription className="text-xs">
               Solicitante: <strong>{currentProfile.name}</strong> ({currentProfile.roleLabel})
             </CardDescription>
+            {editingRequest && (
+              <div className="mt-1 p-2.5 rounded bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800 text-[11px] text-orange-800 dark:text-orange-200 space-y-1">
+                <p className="font-semibold flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Devolvido para correção
+                  {editingRequest.returnedBy ? ` por ${editingRequest.returnedBy}` : ''}
+                </p>
+                {editingRequest.rejectionReason && (
+                  <p>
+                    <strong>Justificativa:</strong> {editingRequest.rejectionReason}
+                  </p>
+                )}
+                <p className="text-muted-foreground">
+                  Ajuste os campos abaixo e reenvie — o pedido reinicia o fluxo pela Etapa 1
+                  (Presidência).
+                </p>
+              </div>
+            )}
           </CardHeader>
 
           <CardContent className="p-4 sm:p-5 pt-2">
@@ -368,10 +429,25 @@ export default function RequestsPage() {
                 )}
               </div>
 
-              <Button type="submit" className="w-full text-xs font-semibold">
-                <Send className="w-3.5 h-3.5 mr-1.5" />
-                Enviar Solicitação à Presidência
-              </Button>
+              <div className="flex gap-2">
+                <Button type="submit" className="flex-1 text-xs font-semibold">
+                  <Send className="w-3.5 h-3.5 mr-1.5" />
+                  {editingRequest
+                    ? 'Reenviar à Presidência (Etapa 1)'
+                    : 'Enviar Solicitação à Presidência'}
+                </Button>
+                {editingRequest && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                    onClick={cancelEditing}
+                  >
+                    Cancelar
+                  </Button>
+                )}
+              </div>
             </form>
           </CardContent>
         </Card>
@@ -411,18 +487,19 @@ export default function RequestsPage() {
                 </Card>
               ) : (
                 displayedRequests.map((req) => {
-                  const badgeInfo = statusBadges[req.status] || {
-                    label: req.status,
-                    class: 'bg-muted text-muted-foreground',
-                    icon: Clock,
-                  }
-                  const StatusIcon = badgeInfo.icon
+                  const StatusIcon = statusIcons[req.status] || Clock
                   const linkedAction = actions.find((a) => a.id === req.actionId)
+                  const canEditThis =
+                    req.status === 'devolvido' &&
+                    req.applicantId === currentProfile.id &&
+                    !editingRequest
 
                   return (
                     <Card
                       key={req.id}
-                      className="p-4 hover:shadow-xs transition cursor-pointer"
+                      className={`p-4 hover:shadow-xs transition cursor-pointer ${
+                        req.status === 'devolvido' ? 'border-orange-300 dark:border-orange-800' : ''
+                      }`}
                       onClick={() => setSelectedRequest(req)}
                     >
                       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
@@ -441,10 +518,10 @@ export default function RequestsPage() {
 
                             <Badge
                               variant="outline"
-                              className={`text-[10px] font-medium flex items-center gap-1 ${badgeInfo.class}`}
+                              className={`text-[10px] font-medium flex items-center gap-1 ${stageBadgeClass(req.status)}`}
                             >
                               <StatusIcon className="w-3 h-3" />
-                              {badgeInfo.label}
+                              {stageLabel(req.status)}
                             </Badge>
 
                             <span className="text-[11px] text-muted-foreground">
@@ -479,6 +556,16 @@ export default function RequestsPage() {
                         </div>
                       </div>
 
+                      {req.status === 'devolvido' && req.rejectionReason && (
+                        <div className="mt-2 p-2 rounded bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800 text-[11px] text-orange-800 dark:text-orange-200">
+                          <AlertTriangle className="w-3.5 h-3.5 inline mr-1 -mt-0.5" />
+                          <strong>
+                            Devolvido{req.returnedBy ? ` por ${req.returnedBy}` : ''}:
+                          </strong>{' '}
+                          {req.rejectionReason}
+                        </div>
+                      )}
+
                       <div className="mt-3 pt-2 border-t flex items-center justify-between text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Paperclip className="w-3 h-3 text-primary" />
@@ -487,10 +574,29 @@ export default function RequestsPage() {
                           </span>
                         </span>
 
-                        <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-primary">
-                          <Eye className="w-3 h-3 mr-1" />
-                          Detalhes
-                        </Button>
+                        {canEditThis ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 text-xs px-2 border-orange-400 text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-950"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              startEditing(req)
+                            }}
+                          >
+                            <Pencil className="w-3 h-3 mr-1" />
+                            Corrigir e Reenviar
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 text-xs px-2 text-primary"
+                          >
+                            <Eye className="w-3 h-3 mr-1" />
+                            Detalhes
+                          </Button>
+                        )}
                       </div>
                     </Card>
                   )
@@ -557,23 +663,81 @@ export default function RequestsPage() {
               <div className="border rounded-lg p-3 space-y-2">
                 <div className="font-semibold text-foreground flex items-center justify-between">
                   <span>Situação Atual</span>
-                  <Badge variant="outline" className="text-[10px]">
-                    {selectedRequest.status.toUpperCase()}
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] ${stageBadgeClass(selectedRequest.status)}`}
+                  >
+                    {stageLabel(selectedRequest.status)}
                   </Badge>
                 </div>
 
-                {selectedRequest.authorizedBy && (
+                {selectedRequest.presidenciaDecision && (
                   <p className="text-muted-foreground">
-                    <strong>Autorizado por:</strong> {selectedRequest.authorizedBy} em{' '}
-                    {formatDateTime(selectedRequest.authorizedAt || '')}
+                    <strong>Etapa 1 (Presidência):</strong>{' '}
+                    {selectedRequest.presidenciaDecision.decision === 'aprovado'
+                      ? 'aprovado'
+                      : selectedRequest.presidenciaDecision.decision === 'reprovado'
+                        ? 'reprovado'
+                        : 'devolvido para correção'}{' '}
+                    por {selectedRequest.presidenciaDecision.by} em{' '}
+                    {formatDateTime(selectedRequest.presidenciaDecision.at)}
+                  </p>
+                )}
+
+                {selectedRequest.financeDecision && (
+                  <p className="text-muted-foreground">
+                    <strong>Etapa 2 (Financeiro):</strong>{' '}
+                    {selectedRequest.financeDecision.decision === 'aprovado'
+                      ? 'planejamento aprovado'
+                      : selectedRequest.financeDecision.decision === 'reprovado'
+                        ? 'reprovado'
+                        : 'devolvido para correção'}{' '}
+                    por {selectedRequest.financeDecision.by} em{' '}
+                    {formatDateTime(selectedRequest.financeDecision.at)}
+                  </p>
+                )}
+
+                {selectedRequest.paymentPlanning && (
+                  <p className="text-muted-foreground">
+                    <strong>Planejamento:</strong> {selectedRequest.paymentPlanning.paymentMethod}{' '}
+                    para {formatDate(selectedRequest.paymentPlanning.expectedDate)}
+                    {selectedRequest.paymentPlanning.notes
+                      ? ` — ${selectedRequest.paymentPlanning.notes}`
+                      : ''}
                   </p>
                 )}
 
                 {selectedRequest.rejectionReason && (
-                  <div className="p-2 rounded bg-rose-50 dark:bg-rose-950/40 border border-rose-200 text-rose-800 dark:text-rose-200">
-                    <strong>Motivo da Recusa:</strong> {selectedRequest.rejectionReason}
+                  <div
+                    className={`p-2 rounded border text-rose-800 dark:text-rose-200 ${
+                      selectedRequest.status === 'devolvido'
+                        ? 'bg-orange-50 dark:bg-orange-950/40 border-orange-200 dark:border-orange-800 text-orange-800 dark:text-orange-200'
+                        : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200'
+                    }`}
+                  >
+                    <strong>
+                      {selectedRequest.status === 'devolvido'
+                        ? 'Justificativa da Devolução:'
+                        : 'Motivo da Reprovação:'}
+                    </strong>{' '}
+                    {selectedRequest.rejectionReason}
                   </div>
                 )}
+
+                {selectedRequest.status === 'devolvido' &&
+                  selectedRequest.applicantId === currentProfile.id && (
+                    <Button
+                      size="sm"
+                      className="w-full text-xs bg-orange-600 hover:bg-orange-700 text-white"
+                      onClick={() => {
+                        setSelectedRequest(null)
+                        startEditing(selectedRequest)
+                      }}
+                    >
+                      <Pencil className="w-3.5 h-3.5 mr-1.5" />
+                      Corrigir e Reenviar à Presidência
+                    </Button>
+                  )}
 
                 {selectedRequest.paymentInfo && (
                   <div className="p-2.5 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 text-emerald-900 dark:text-emerald-100 space-y-1">

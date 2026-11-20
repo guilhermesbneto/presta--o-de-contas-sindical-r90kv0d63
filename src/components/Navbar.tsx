@@ -305,8 +305,18 @@ export const Navbar: React.FC = () => {
           <div className="max-w-7xl mx-auto flex items-center justify-between">
             <span className="flex items-center gap-1.5 font-medium">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              Permissão Ativa: Você tem poder estatutário para <strong>autorizar</strong> e{' '}
-              <strong>efetuar pagamentos</strong> sindicais.
+              {currentProfile.role === 'presidencia' ||
+              currentProfile.role === 'presidencia_substituto' ? (
+                <>
+                  Permissão Ativa: <strong>Etapa 1 — Presidência.</strong> Você analisa pedidos e
+                  pode aprovar, reprovar ou devolver para correção.
+                </>
+              ) : (
+                <>
+                  Permissão Ativa: <strong>Etapa 2 — Financeiro.</strong> Você planeja o pagamento,
+                  aprova o planejamento e efetua a liquidação (após a dupla aprovação).
+                </>
+              )}
             </span>
             <Link
               to="/autorizacao-pagamento"

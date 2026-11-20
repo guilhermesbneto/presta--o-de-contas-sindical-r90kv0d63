@@ -45,14 +45,21 @@ export default function OverviewPage() {
 
   const saldoAtual = totalReceitas - totalDespesas
 
-  // Pending items based on role
-  const pendingRequestsToAuthorize = requests.filter((r) => r.status === 'pendente')
-  const authorizedRequestsToPay = requests.filter((r) => r.status === 'autorizado')
+  // Pending items based on role (fluxo em duas etapas)
+  const stageOneCount = requests.filter((r) => r.status === 'pendente').length
+  const stageTwoCount = requests.filter((r) => r.status === 'aguardando_financeiro').length
+  const toSettleCount = requests.filter((r) => r.status === 'aguardando_pagamento').length
+  const returnedToMe = requests.filter(
+    (r) => r.status === 'devolvido' && r.applicantId === currentProfile.id,
+  ).length
   const myRequests = requests.filter((r) => r.applicantId === currentProfile.id)
 
   const pendingFiscalPeriod = fiscalPeriods.find(
     (p) => p.status === 'em_analise' && !p.votes[currentProfile.role],
   )
+
+  const isPresidencyProfile =
+    currentProfile.role === 'presidencia' || currentProfile.role === 'presidencia_substituto'
 
   const statusMap = {
     planejada: { label: 'Planejada', variant: 'secondary' as const },
@@ -99,8 +106,7 @@ export default function OverviewPage() {
             >
               <Link to="/autorizacao-pagamento">
                 <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                Autorizar & Pagar (
-                {pendingRequestsToAuthorize.length + authorizedRequestsToPay.length})
+                Autorizar & Pagar ({stageOneCount + stageTwoCount + toSettleCount})
               </Link>
             </Button>
           )}
@@ -119,7 +125,7 @@ export default function OverviewPage() {
       {/* Role-specific Action Banner / Pendencies */}
       {(canAuthorizeAndPay ||
         isFiscalMember ||
-        myRequests.some((r) => r.status === 'pendente')) && (
+        myRequests.some((r) => r.status === 'pendente' || r.status === 'devolvido')) && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {canAuthorizeAndPay && (
             <Card className="border-amber-300 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
@@ -133,16 +139,27 @@ export default function OverviewPage() {
                     variant="outline"
                     className="bg-amber-100 text-amber-800 border-amber-300 text-xs"
                   >
-                    {pendingRequestsToAuthorize.length} para autorizar
+                    {isPresidencyProfile
+                      ? `${stageOneCount} na Etapa 1`
+                      : `${stageTwoCount + toSettleCount} na Etapa 2`}
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent className="p-4 pt-1">
                 <p className="text-xs text-muted-foreground">
-                  Existem <strong>{pendingRequestsToAuthorize.length} pedidos pendentes</strong> de
-                  adiantamento/ressarcimento e{' '}
-                  <strong>{authorizedRequestsToPay.length} autorizados</strong> aguardando registro
-                  de pagamento.
+                  {isPresidencyProfile ? (
+                    <>
+                      Existem{' '}
+                      <strong>{stageOneCount} pedidos aguardando a análise da Presidência</strong>{' '}
+                      (Etapa 1).
+                    </>
+                  ) : (
+                    <>
+                      Existem <strong>{stageTwoCount} pedidos aprovados pela Presidência</strong>{' '}
+                      aguardando planejamento e <strong>{toSettleCount}</strong> com dupla aprovação
+                      aguardando pagamento (Etapa 2).
+                    </>
+                  )}
                 </p>
                 <Button
                   asChild
@@ -220,6 +237,13 @@ export default function OverviewPage() {
                 Qualquer filiado ou colaborador pode pedir adiantamento ou ressarcimento com
                 comprovante.
               </p>
+              {returnedToMe > 0 && (
+                <div className="mt-2 p-2 rounded bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 text-[11px] text-orange-800 dark:text-orange-200">
+                  <AlertCircle className="w-3 h-3 inline mr-1 -mt-0.5" />
+                  <strong>{returnedToMe}</strong> pedido(s) devolvido(s) para sua correção — acesse{' '}
+                  <strong>Solicitações</strong> para ver a justificativa e reenviar.
+                </div>
+              )}
               <div className="mt-3 flex items-center gap-2">
                 <Button asChild size="sm" variant="secondary" className="w-full text-xs">
                   <Link to="/solicitacoes">

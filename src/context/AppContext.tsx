@@ -7,6 +7,8 @@ import {
   FiscalAccountPeriod,
   RoleType,
   FiscalDecision,
+  PaymentPlanningMethod,
+  StageReview,
 } from '@/types'
 import {
   DEMO_PROFILES,
@@ -23,13 +25,34 @@ interface AppContextType {
 
   // Requests
   requests: ExpenseRequest[]
-  addRequest: (req: Omit<ExpenseRequest, 'id' | 'createdAt' | 'status'>) => void
-  authorizeRequest: (id: string, notes?: string) => void
-  rejectRequest: (id: string, reason: string) => void
+  addRequest: (
+    req: Omit<ExpenseRequest, 'id' | 'createdAt' | 'status' | 'currentStage' | 'stageHistory'>,
+  ) => void
+  /** Etapa 1: decisão da Presidência (ou substituto) sobre o pedido */
+  decidePresidency: (id: string, decision: StageReview['decision'], justification?: string) => void
+  /** Etapa 2: Financeiro planeja o pagamento e decide (aprovar/reprovar/devolver) */
+  decideFinance: (
+    id: string,
+    decision: StageReview['decision'],
+    planning: {
+      paymentMethod: PaymentPlanningMethod
+      expectedDate: string
+      notes?: string
+    },
+    justification?: string,
+  ) => void
+  /** Solicitante corrige e reenvia pedido devolvido — reinicia na Etapa 1 */
+  resubmitRequest: (
+    id: string,
+    updates: Partial<
+      Pick<ExpenseRequest, 'amount' | 'reason' | 'category' | 'receiptName' | 'actionId' | 'type'>
+    >,
+  ) => void
+  /** Liquidação do pagamento pelo Financeiro — exige aprovação das duas etapas */
   payRequest: (
     id: string,
     paymentData: {
-      paymentMethod: 'Pix' | 'Transferência Bancária' | 'Cheque Nominal' | 'Dinheiro / Caixa'
+      paymentMethod: PaymentPlanningMethod
       referenceCode?: string
       notes?: string
     },
@@ -50,6 +73,8 @@ interface AppContextType {
 
   // Permissions helpers
   canAuthorizeAndPay: boolean
+  isPresidency: boolean
+  isFinance: boolean
   canManageActions: boolean
   canVoteFiscal: boolean
   isFiscalMember: boolean
@@ -58,7 +83,8 @@ interface AppContextType {
 
 const STORAGE_KEYS = {
   PROFILE: 'sindicato_current_profile',
-  REQUESTS: 'sindicato_requests_v1',
+  // v2: fluxo de autorização em duas etapas (formato de ExpenseRequest mudou)
+  REQUESTS: 'sindicato_requests_v2',
   ACTIONS: 'sindicato_actions_v1',
   MOVEMENTS: 'sindicato_movements_v1',
   FISCAL: 'sindicato_fiscal_v1',
@@ -155,13 +181,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }
 
   // Permission logic according to union rules:
-  // APENAS Presidência e Finanças (ou seus substitutos) podem autorizar e efetuar pagamentos.
+  // APENAS Presidência e Finanças (ou seus substitutos) acessam a mesa de trabalho.
   const canAuthorizeAndPay = [
     'presidencia',
     'presidencia_substituto',
     'financas',
     'financas_substituto',
   ].includes(currentProfile.role)
+
+  // Etapa 1: somente Presidência (ou substituto) decide
+  const isPresidency = ['presidencia', 'presidencia_substituto'].includes(currentProfile.role)
+
+  // Etapa 2: somente Finanças (ou substituto) planeja/decide e liquida o pagamento
+  const isFinance = ['financas', 'financas_substituto'].includes(currentProfile.role)
 
   // A diretoria executa e gerencia as ações (Presidência e Finanças também compõem a Diretoria Executiva)
   const canManageActions = [
@@ -179,76 +211,225 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const canVoteFiscal = isFiscalMember
 
+  const whoAmI = `${currentProfile.name} (${currentProfile.roleLabel})`
+
   // Request actions
-  const addRequest = (req: Omit<ExpenseRequest, 'id' | 'createdAt' | 'status'>) => {
+  const addRequest = (
+    req: Omit<ExpenseRequest, 'id' | 'createdAt' | 'status' | 'currentStage' | 'stageHistory'>,
+  ) => {
     const newReq: ExpenseRequest = {
       ...req,
       id: `req-${Date.now()}`,
       createdAt: new Date().toISOString(),
       status: 'pendente',
+      currentStage: 1,
+      stageHistory: [],
     }
     setRequests((prev) => [newReq, ...prev])
   }
 
-  const authorizeRequest = (id: string, notes?: string) => {
-    if (!canAuthorizeAndPay) return
+  const buildStageReview = (
+    decision: StageReview['decision'],
+    justification?: string,
+  ): StageReview => ({
+    stage: isPresidency ? 1 : 2,
+    decision,
+    by: whoAmI,
+    byRole: currentProfile.roleLabel,
+    at: new Date().toISOString(),
+    justification: justification?.trim() || undefined,
+  })
+
+  // Etapa 1 — Presidência: aprovar (segue ao Financeiro), reprovar ou devolver p/ correção
+  const decidePresidency = (
+    id: string,
+    decision: StageReview['decision'],
+    justification?: string,
+  ) => {
+    if (!isPresidency) return
+    if (decision !== 'aprovado' && !justification?.trim()) return
+
     setRequests((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? {
-              ...r,
-              status: 'autorizado',
-              authorizedBy: `${currentProfile.name} (${currentProfile.roleLabel})`,
-              authorizedAt: new Date().toISOString(),
-            }
-          : r,
-      ),
+      prev.map((r) => {
+        if (r.id !== id) return r
+        // Guarda: só age sobre pedidos que estão na Etapa 1
+        if (r.currentStage !== 1 || r.status !== 'pendente') return r
+
+        const review = buildStageReview(decision, justification)
+
+        if (decision === 'aprovado') {
+          return {
+            ...r,
+            status: 'aguardando_financeiro',
+            currentStage: 2,
+            presidenciaDecision: review,
+            stageHistory: [...r.stageHistory, review],
+            authorizedBy: review.by, // compatibilidade: primeira autorização
+            authorizedAt: review.at,
+            rejectionReason: undefined,
+            returnedBy: undefined,
+            returnedAt: undefined,
+          }
+        }
+
+        if (decision === 'devolvido') {
+          return {
+            ...r,
+            status: 'devolvido',
+            currentStage: 1,
+            presidenciaDecision: review,
+            stageHistory: [...r.stageHistory, review],
+            rejectionReason: justification?.trim(),
+            returnedBy: review.by,
+            returnedAt: review.at,
+          }
+        }
+
+        // reprovado
+        return {
+          ...r,
+          status: 'recusado',
+          currentStage: 1,
+          presidenciaDecision: review,
+          stageHistory: [...r.stageHistory, review],
+          rejectionReason: justification?.trim(),
+        }
+      }),
     )
   }
 
-  const rejectRequest = (id: string, reason: string) => {
-    if (!canAuthorizeAndPay) return
+  // Etapa 2 — Financeiro: planeja o pagamento e decide; liquidação só depois de ambos aprovarem
+  const decideFinance = (
+    id: string,
+    decision: StageReview['decision'],
+    planning: {
+      paymentMethod: PaymentPlanningMethod
+      expectedDate: string
+      notes?: string
+    },
+    justification?: string,
+  ) => {
+    if (!isFinance) return
+    if (decision !== 'aprovado' && !justification?.trim()) return
+
     setRequests((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? {
-              ...r,
-              status: 'recusado',
-              rejectionReason: reason,
-              authorizedBy: `${currentProfile.name} (${currentProfile.roleLabel})`,
-              authorizedAt: new Date().toISOString(),
-            }
-          : r,
-      ),
+      prev.map((r) => {
+        if (r.id !== id) return r
+        // Guarda: só age sobre pedidos na Etapa 2
+        if (r.currentStage !== 2 || r.status !== 'aguardando_financeiro') return r
+
+        const review = buildStageReview(decision, justification)
+        const planningData = {
+          plannedBy: whoAmI,
+          plannedAt: new Date().toISOString(),
+          paymentMethod: planning.paymentMethod,
+          expectedDate: planning.expectedDate,
+          notes: planning.notes?.trim() || undefined,
+        }
+
+        if (decision === 'aprovado') {
+          // Ambos aprovaram → pronto para liquidação
+          return {
+            ...r,
+            status: 'aguardando_pagamento',
+            currentStage: 2,
+            financeDecision: review,
+            paymentPlanning: planningData,
+            stageHistory: [...r.stageHistory, review],
+            rejectionReason: undefined,
+            returnedBy: undefined,
+            returnedAt: undefined,
+          }
+        }
+
+        if (decision === 'devolvido') {
+          return {
+            ...r,
+            status: 'devolvido',
+            currentStage: 1,
+            financeDecision: review,
+            stageHistory: [...r.stageHistory, review],
+            rejectionReason: justification?.trim(),
+            returnedBy: review.by,
+            returnedAt: review.at,
+          }
+        }
+
+        // reprovado
+        return {
+          ...r,
+          status: 'recusado',
+          currentStage: 2,
+          financeDecision: review,
+          stageHistory: [...r.stageHistory, review],
+          rejectionReason: justification?.trim(),
+        }
+      }),
     )
   }
 
+  // Solicitante corrige e reenvia pedido devolvido — reinicia na Etapa 1 (Presidência)
+  const resubmitRequest = (
+    id: string,
+    updates: Partial<
+      Pick<ExpenseRequest, 'amount' | 'reason' | 'category' | 'receiptName' | 'actionId' | 'type'>
+    >,
+  ) => {
+    setRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r
+        // Guarda: apenas o próprio solicitante, apenas pedidos devolvidos
+        if (r.applicantId !== currentProfile.id) return r
+        if (r.status !== 'devolvido') return r
+
+        return {
+          ...r,
+          ...updates,
+          status: 'pendente',
+          currentStage: 1,
+          rejectionReason: undefined,
+          returnedBy: undefined,
+          returnedAt: undefined,
+          // Reinicia o fluxo: decisões anteriores ficam no histórico; decisões correntes são limpas
+          presidenciaDecision: undefined,
+          financeDecision: undefined,
+        }
+      }),
+    )
+  }
+
+  // Liquidação — somente Financeiro e somente quando presidente E financeiro aprovaram
   const payRequest = (
     id: string,
     paymentData: {
-      paymentMethod: 'Pix' | 'Transferência Bancária' | 'Cheque Nominal' | 'Dinheiro / Caixa'
+      paymentMethod: PaymentPlanningMethod
       referenceCode?: string
       notes?: string
     },
   ) => {
-    if (!canAuthorizeAndPay) return
+    if (!isFinance) return
+
     let targetReq: ExpenseRequest | undefined
 
     setRequests((prev) =>
       prev.map((r) => {
-        if (r.id === id) {
-          targetReq = r
-          return {
-            ...r,
-            status: 'pago',
-            paymentInfo: {
-              paidBy: `${currentProfile.name} (${currentProfile.roleLabel})`,
-              paidAt: new Date().toISOString(),
-              ...paymentData,
-            },
-          }
+        if (r.id !== id) return r
+        // Guarda: exige aprovação da Presidência (etapa 1) E do Financeiro (etapa 2)
+        const bothApproved =
+          r.presidenciaDecision?.decision === 'aprovado' &&
+          r.financeDecision?.decision === 'aprovado'
+        if (!bothApproved || r.status !== 'aguardando_pagamento') return r
+
+        targetReq = r
+        return {
+          ...r,
+          status: 'pago',
+          paymentInfo: {
+            paidBy: whoAmI,
+            paidAt: new Date().toISOString(),
+            ...paymentData,
+          },
         }
-        return r
       }),
     )
 
@@ -384,8 +565,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         profiles: DEMO_PROFILES,
         requests,
         addRequest,
-        authorizeRequest,
-        rejectRequest,
+        decidePresidency,
+        decideFinance,
+        resubmitRequest,
         payRequest,
         actions,
         addAction,
@@ -395,6 +577,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fiscalPeriods,
         castFiscalVote,
         canAuthorizeAndPay,
+        isPresidency,
+        isFinance,
         canManageActions,
         canVoteFiscal,
         isFiscalMember,

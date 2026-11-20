@@ -287,6 +287,7 @@ export const INITIAL_MOVEMENTS: ActionMovement[] = [
 
 export const INITIAL_REQUESTS: ExpenseRequest[] = [
   {
+    // Etapa 1 — aguardando decisão da Presidência
     id: 'req-101',
     applicantName: 'Fernando Guimarães Lins',
     applicantRole: 'Filiado Sindical Ativo',
@@ -299,9 +300,12 @@ export const INITIAL_REQUESTS: ExpenseRequest[] = [
     receiptName: 'comprovante_pedagio_combustivel_plenaria.pdf',
     actionId: 'act-1',
     status: 'pendente',
+    currentStage: 1,
+    stageHistory: [],
     createdAt: '2025-02-24T14:30:00Z',
   },
   {
+    // Etapa 1 — aguardando decisão da Presidência
     id: 'req-102',
     applicantName: 'Beatriz Vasconcellos',
     applicantRole: 'Colaboradora / Assessora de Comunicação',
@@ -314,9 +318,12 @@ export const INITIAL_REQUESTS: ExpenseRequest[] = [
     receiptName: 'orcamento_grafica_expressa_sp.pdf',
     actionId: 'act-1',
     status: 'pendente',
+    currentStage: 1,
+    stageHistory: [],
     createdAt: '2025-02-25T09:15:00Z',
   },
   {
+    // Etapa 2 — aprovado pela Presidência; Financeiro planeja o pagamento
     id: 'req-103',
     applicantName: 'Juliana Meireles Costa',
     applicantRole: 'Diretora de Formação e Mobilização',
@@ -328,12 +335,87 @@ export const INITIAL_REQUESTS: ExpenseRequest[] = [
     category: 'Alimentação e Hospedagem',
     receiptName: 'nota_fiscal_restaurante_central_nf892.pdf',
     actionId: 'act-3',
-    status: 'autorizado',
-    createdAt: '2025-02-18T16:20:00Z',
+    status: 'aguardando_financeiro',
+    currentStage: 2,
+    stageHistory: [
+      {
+        stage: 1,
+        decision: 'aprovado',
+        by: 'Carlos Eduardo Silveira (Presidente)',
+        byRole: 'Presidente do Sindicato',
+        at: '2025-02-19T10:00:00Z',
+      },
+    ],
+    presidenciaDecision: {
+      stage: 1,
+      decision: 'aprovado',
+      by: 'Carlos Eduardo Silveira (Presidente)',
+      byRole: 'Presidente do Sindicato',
+      at: '2025-02-19T10:00:00Z',
+    },
     authorizedBy: 'Carlos Eduardo Silveira (Presidente)',
     authorizedAt: '2025-02-19T10:00:00Z',
+    createdAt: '2025-02-18T16:20:00Z',
   },
   {
+    // Etapa 2 concluída — ambos aprovaram; aguardando liquidação pelo Financeiro
+    id: 'req-106',
+    applicantName: 'Paulo Henrique Sampaio',
+    applicantRole: 'Diretor de Comunicação Sindical',
+    applicantId: 'p-8',
+    type: 'adiantamento',
+    // (nome de exemplo; o perfil do solicitante usado no fluxo de devolução é o p-8)
+    amount: 2100.0,
+    reason:
+      'Adiantamento para produção de material de divulgação oficial do 1º de Maio (cartazes, lonas e divulgação digital).',
+    category: 'Comunicação e Mídia',
+    receiptName: 'orcamento_producao_grafica_1maio.pdf',
+    actionId: 'act-5',
+    status: 'aguardando_pagamento',
+    currentStage: 2,
+    stageHistory: [
+      {
+        stage: 1,
+        decision: 'aprovado',
+        by: 'Carlos Eduardo Silveira (Presidente)',
+        byRole: 'Presidente do Sindicato',
+        at: '2025-02-20T09:40:00Z',
+      },
+      {
+        stage: 2,
+        decision: 'aprovado',
+        by: 'Roberto Antunes Dias (Diretor Financeiro)',
+        byRole: 'Diretor Financeiro / Tesoureiro',
+        at: '2025-02-21T11:05:00Z',
+      },
+    ],
+    presidenciaDecision: {
+      stage: 1,
+      decision: 'aprovado',
+      by: 'Carlos Eduardo Silveira (Presidente)',
+      byRole: 'Presidente do Sindicato',
+      at: '2025-02-20T09:40:00Z',
+    },
+    financeDecision: {
+      stage: 2,
+      decision: 'aprovado',
+      by: 'Roberto Antunes Dias (Diretor Financeiro)',
+      byRole: 'Diretor Financeiro / Tesoureiro',
+      at: '2025-02-21T11:05:00Z',
+    },
+    paymentPlanning: {
+      plannedBy: 'Roberto Antunes Dias (Diretor Financeiro)',
+      plannedAt: '2025-02-21T11:05:00Z',
+      paymentMethod: 'Pix',
+      expectedDate: '2025-02-26',
+      notes: 'Priorizar pagamento antes da mobilização do dia 28/02.',
+    },
+    authorizedBy: 'Carlos Eduardo Silveira (Presidente)',
+    authorizedAt: '2025-02-20T09:40:00Z',
+    createdAt: '2025-02-19T08:10:00Z',
+  },
+  {
+    // Liquidado — fluxo completo concluído
     id: 'req-104',
     applicantName: 'Carlos Eduardo Silveira',
     applicantRole: 'Presidente do Sindicato',
@@ -346,7 +428,43 @@ export const INITIAL_REQUESTS: ExpenseRequest[] = [
     receiptName: 'bilhete_viagem_brasilia_fev2025.pdf',
     actionId: 'act-1',
     status: 'pago',
-    createdAt: '2025-02-10T11:00:00Z',
+    currentStage: 2,
+    stageHistory: [
+      {
+        stage: 1,
+        decision: 'aprovado',
+        by: 'Márcia Helena Ribeiro (Vice-Presidente Substituta)',
+        byRole: 'Vice-Presidente (Substituta)',
+        at: '2025-02-11T09:30:00Z',
+      },
+      {
+        stage: 2,
+        decision: 'aprovado',
+        by: 'Roberto Antunes Dias (Diretor Financeiro)',
+        byRole: 'Diretor Financeiro / Tesoureiro',
+        at: '2025-02-12T10:00:00Z',
+      },
+    ],
+    presidenciaDecision: {
+      stage: 1,
+      decision: 'aprovado',
+      by: 'Márcia Helena Ribeiro (Vice-Presidente Substituta)',
+      byRole: 'Vice-Presidente (Substituta)',
+      at: '2025-02-11T09:30:00Z',
+    },
+    financeDecision: {
+      stage: 2,
+      decision: 'aprovado',
+      by: 'Roberto Antunes Dias (Diretor Financeiro)',
+      byRole: 'Diretor Financeiro / Tesoureiro',
+      at: '2025-02-12T10:00:00Z',
+    },
+    paymentPlanning: {
+      plannedBy: 'Roberto Antunes Dias (Diretor Financeiro)',
+      plannedAt: '2025-02-12T10:00:00Z',
+      paymentMethod: 'Pix',
+      expectedDate: '2025-02-12',
+    },
     authorizedBy: 'Márcia Helena Ribeiro (Vice-Presidente Substituta)',
     authorizedAt: '2025-02-11T09:30:00Z',
     paymentInfo: {
@@ -356,8 +474,10 @@ export const INITIAL_REQUESTS: ExpenseRequest[] = [
       referenceCode: 'PIX-SIND-20250212-0091',
       notes: 'Transferido para chave CPF do solicitante.',
     },
+    createdAt: '2025-02-10T11:00:00Z',
   },
   {
+    // Devolvido para correção — volta ao solicitante com justificativa
     id: 'req-105',
     applicantName: 'Fernando Guimarães Lins',
     applicantRole: 'Filiado Sindical Ativo',
@@ -368,12 +488,87 @@ export const INITIAL_REQUESTS: ExpenseRequest[] = [
       'Despesas com estacionamento privado e alimentação em viagem não agendada previamente com a diretoria.',
     category: 'Outros',
     receiptName: 'recibo_avulso_despesas_estacionamento.pdf',
-    status: 'recusado',
-    createdAt: '2025-01-28T10:00:00Z',
+    status: 'devolvido',
+    currentStage: 1,
+    stageHistory: [
+      {
+        stage: 1,
+        decision: 'devolvido',
+        by: 'Carlos Eduardo Silveira (Presidente)',
+        byRole: 'Presidente do Sindicato',
+        at: '2025-01-29T15:20:00Z',
+        justification:
+          'Despesa sem aprovação prévia e sem vínculo com atividade oficial do calendário sindical. Anexe a autorização prévia ou detalhe a atividade oficial.',
+      },
+    ],
+    presidenciaDecision: {
+      stage: 1,
+      decision: 'devolvido',
+      by: 'Carlos Eduardo Silveira (Presidente)',
+      byRole: 'Presidente do Sindicato',
+      at: '2025-01-29T15:20:00Z',
+      justification:
+        'Despesa sem aprovação prévia e sem vínculo com atividade oficial do calendário sindical. Anexe a autorização prévia ou detalhe a atividade oficial.',
+    },
     rejectionReason:
-      'Despesa não autorizada previamente pelo comitê financeiro e sem vínculo com atividade oficial do calendário sindical.',
-    authorizedBy: 'Roberto Antunes Dias (Diretor Financeiro)',
-    authorizedAt: '2025-01-29T15:20:00Z',
+      'Despesa sem aprovação prévia e sem vínculo com atividade oficial do calendário sindical. Anexe a autorização prévia ou detalhe a atividade oficial.',
+    returnedBy: 'Carlos Eduardo Silveira (Presidente)',
+    returnedAt: '2025-01-29T15:20:00Z',
+    createdAt: '2025-01-28T10:00:00Z',
+  },
+  {
+    // Reprovado formalmente na Etapa 2 (planejamento reprovado pelo Financeiro)
+    id: 'req-107',
+    applicantName: 'Beatriz Vasconcellos',
+    applicantRole: 'Colaboradora / Assessora de Comunicação',
+    applicantId: 'p-10',
+    type: 'ressarcimento',
+    amount: 460.0,
+    reason:
+      'Ressarcimento de assinatura de plataforma de design por 12 meses paga em cartão pessoal.',
+    category: 'Comunicação e Mídia',
+    receiptName: 'fatura_plataforma_design_2025.pdf',
+    status: 'recusado',
+    currentStage: 2,
+    stageHistory: [
+      {
+        stage: 1,
+        decision: 'aprovado',
+        by: 'Carlos Eduardo Silveira (Presidente)',
+        byRole: 'Presidente do Sindicato',
+        at: '2025-02-14T10:20:00Z',
+      },
+      {
+        stage: 2,
+        decision: 'reprovado',
+        by: 'Ana Cláudia Fontes (Vice-Diretora de Finanças)',
+        byRole: 'Vice-Diretora de Finanças (Substituta)',
+        at: '2025-02-15T14:45:00Z',
+        justification:
+          'Serviço de assinatura recorrente deve ser contratado via setor de compras com nota fiscal em nome do sindicato.',
+      },
+    ],
+    presidenciaDecision: {
+      stage: 1,
+      decision: 'aprovado',
+      by: 'Carlos Eduardo Silveira (Presidente)',
+      byRole: 'Presidente do Sindicato',
+      at: '2025-02-14T10:20:00Z',
+    },
+    financeDecision: {
+      stage: 2,
+      decision: 'reprovado',
+      by: 'Ana Cláudia Fontes (Vice-Diretora de Finanças)',
+      byRole: 'Vice-Diretora de Finanças (Substituta)',
+      at: '2025-02-15T14:45:00Z',
+      justification:
+        'Serviço de assinatura recorrente deve ser contratado via setor de compras com nota fiscal em nome do sindicato.',
+    },
+    rejectionReason:
+      'Serviço de assinatura recorrente deve ser contratado via setor de compras com nota fiscal em nome do sindicato.',
+    authorizedBy: 'Carlos Eduardo Silveira (Presidente)',
+    authorizedAt: '2025-02-14T10:20:00Z',
+    createdAt: '2025-02-13T09:00:00Z',
   },
 ]
 
