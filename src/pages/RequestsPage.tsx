@@ -174,6 +174,9 @@ export default function RequestsPage() {
       receiptName: receiptFileName,
       receiptUrl: '#',
       actionId: actionId === 'geral' ? undefined : actionId,
+      status: 'pendente' as const,
+      createdAt: new Date().toISOString(),
+      currentStage: 1 as const,
     })
 
     toast({

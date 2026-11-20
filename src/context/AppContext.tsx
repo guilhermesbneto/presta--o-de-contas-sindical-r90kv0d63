@@ -15,6 +15,8 @@ import type {
   ExpenseRequest,
   FiscalAccountPeriod,
   FiscalDecision,
+  FiscalVote,
+  PaymentPlanning,
   StageDecision,
   UserProfile,
 } from '@/types'
@@ -322,7 +324,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   votes: {
                     ...p.votes,
                     [currentProfile.role]: {
-                      councilMemberId: currentProfile.role,
+                      councilMemberId: currentProfile.role as FiscalVote['councilMemberId'],
                       councilMemberName: currentProfile.name,
                       decision,
                       justification,

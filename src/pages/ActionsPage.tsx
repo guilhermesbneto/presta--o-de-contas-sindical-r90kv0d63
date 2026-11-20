@@ -94,6 +94,7 @@ export default function ActionsPage() {
       responsible: `${newResponsible} (${newResponsibleRole})`,
       responsibleRole: newResponsibleRole,
       budget: budgetNum,
+      spent: 0,
       status: 'planejada',
       startDate: new Date().toISOString().split('T')[0],
       targetDate: newTargetDate,

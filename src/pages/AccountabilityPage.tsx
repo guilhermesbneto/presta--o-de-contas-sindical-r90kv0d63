@@ -2,8 +2,7 @@ import React, { useState } from 'react'
 import { useApp } from '@/context/AppContext'
 import { formatCurrency, formatDate } from '@/lib/formatters'
 import { FiscalMarkCell, FiscalReportButton } from '@/components/FiscalMarking'
-import { quarterOfISODate } from '@/lib/fiscal'
-import type { FiscalMemberRole } from '@/lib/fiscal'
+import { latestMarkFor, MARK_STATUS_META, quarterOfISODate } from '@/lib/fiscal'
 import {
   isDateInRange,
   getPresetRange,
@@ -67,8 +66,6 @@ function AccountabilityPage() {
     currentProfile,
   } = useApp()
   const { toast } = useToast()
-
-  const myFiscalRole = isFiscalMember ? (currentProfile.role as FiscalMemberRole) : null
 
   const [activeTab, setActiveTab] = useState<'geral' | 'por_acao' | 'pagamentos'>('geral')
   const [search, setSearch] = useState('')
@@ -564,7 +561,6 @@ function AccountabilityPage() {
                               targetId={mov.id}
                               targetType="movimento"
                               quarter={quarterOfISODate(mov.date)}
-                              myFiscalRole={myFiscalRole}
                             />
                           </td>
                         </tr>
@@ -733,7 +729,6 @@ function AccountabilityPage() {
                               targetId={req.id}
                               targetType="pagamento"
                               quarter={quarterOfISODate(req.paymentInfo?.paidAt || req.createdAt)}
-                              myFiscalRole={myFiscalRole}
                             />
                           </td>
                         </tr>

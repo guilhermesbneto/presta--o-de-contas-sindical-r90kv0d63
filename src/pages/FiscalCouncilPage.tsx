@@ -67,6 +67,7 @@ export default function FiscalCouncilPage() {
     const current = fiscalQuarterPlan.assignments[String(quarter)] ?? []
     const next = current.includes(role) ? current.filter((r) => r !== role) : [...current, role]
     updateFiscalQuarterPlan({
+      ...fiscalQuarterPlan,
       assignments: { ...fiscalQuarterPlan.assignments, [String(quarter)]: next },
     })
   }
