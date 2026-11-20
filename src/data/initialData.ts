@@ -5,7 +5,7 @@ import {
   ActionMovement,
   FiscalAccountPeriod,
 } from '@/types'
-import { FiscalMovementMark, FiscalQuarterPlan, QUARTER_SHORT, quarterRange } from '@/lib/fiscal'
+import { FiscalMovementMark, FiscalQuarterPlan } from '@/lib/fiscal'
 
 export const DEMO_PROFILES: UserProfile[] = [
   {
@@ -578,8 +578,8 @@ export const INITIAL_FISCAL_QUARTER_PLAN: FiscalQuarterPlan = {
   id: 'plan-2025',
   year: 2025,
   openForMarking: true,
-  // 1º, 2º e 3º trimestres: um conselheiro titular por trimestre.
-  // 4º trimestre: revisão em conjunto pelos três (colegiada).
+  // 1º, 2º e 3º QUADRIMESTRES: um conselheiro titular por quadrimestre.
+  // 4º quadrimestre (fechamento do exercício): revisão em conjunto pelos três (colegiada).
   assignments: {
     '1': ['conselho_fiscal_1'],
     '2': ['conselho_fiscal_2'],
@@ -601,6 +601,7 @@ export const INITIAL_FISCAL_MARKS: FiscalMovementMark[] = [
     markedByRole: '1º Conselheiro Fiscal',
     markedAt: '2025-02-10T15:30:00Z',
     quarter: 1,
+    responseDueDate: '2025-03-15',
   },
   {
     id: 'fmark-2',
@@ -613,6 +614,7 @@ export const INITIAL_FISCAL_MARKS: FiscalMovementMark[] = [
     markedByRole: '2ª Conselheira Fiscal',
     markedAt: '2025-02-11T10:45:00Z',
     quarter: 1,
+    responseDueDate: '2025-03-20',
   },
   {
     id: 'fmark-3',
@@ -623,8 +625,16 @@ export const INITIAL_FISCAL_MARKS: FiscalMovementMark[] = [
       'Cotação prévia de preços não anexada — recomendo incluir orçamentos comparativos em compras acima de R$ 10 mil.',
     markedBy: 'Dra. Sônia Regina Prado',
     markedByRole: '2ª Conselheira Fiscal',
-    markedAt: '2025-01-15T09:20:00Z',
+    markedAt: '2024-12-18T09:20:00Z',
     quarter: 4,
+    responseDueDate: '2025-01-31',
+    boardResponse: {
+      respondedBy: 'Carlos Eduardo Silveira',
+      respondedByRole: 'Presidente do Sindicato',
+      respondedAt: '2025-01-28T14:00:00Z',
+      message:
+        'Orçamentos comparativos (3 cotações) foram anexados ao processo administrativo da reforma e a compra foi regularizada via setor de compras.',
+    },
   },
 ]
 

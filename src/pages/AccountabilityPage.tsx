@@ -1,6 +1,9 @@
 import React, { useState } from 'react'
 import { useApp } from '@/context/AppContext'
 import { formatCurrency, formatDate } from '@/lib/formatters'
+import { FiscalMarkCell, FiscalReportButton } from '@/components/FiscalMarking'
+import { quarterOfISODate } from '@/lib/fiscal'
+import type { FiscalMemberRole } from '@/lib/fiscal'
 import {
   isDateInRange,
   getPresetRange,
@@ -51,9 +54,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
 
 function AccountabilityPage() {
-  const { movements, actions, requests, addMovement, canAuthorizeAndPay, canManageActions } =
-    useApp()
+  const {
+    movements,
+    actions,
+    requests,
+    addMovement,
+    canAuthorizeAndPay,
+    canManageActions,
+    fiscalQuarterPlan,
+    fiscalMarks,
+    isFiscalMember,
+    currentProfile,
+  } = useApp()
   const { toast } = useToast()
+
+  const myFiscalRole = isFiscalMember ? (currentProfile.role as FiscalMemberRole) : null
 
   const [activeTab, setActiveTab] = useState<'geral' | 'por_acao' | 'pagamentos'>('geral')
   const [search, setSearch] = useState('')
@@ -189,6 +204,7 @@ function AccountabilityPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <FiscalReportButton />
           {(canAuthorizeAndPay || canManageActions) && (
             <Dialog open={isNewMovementOpen} onOpenChange={setIsNewMovementOpen}>
               <DialogTrigger asChild>
@@ -475,12 +491,13 @@ function AccountabilityPage() {
                     <th className="p-3">Ação Vinculada</th>
                     <th className="p-3">Forma</th>
                     <th className="p-3 text-right">Valor (R$)</th>
+                    <th className="p-3">Análise Fiscal</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {filteredMovements.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                      <td colSpan={8} className="p-8 text-center text-muted-foreground">
                         Nenhum registro contábil encontrado para os filtros selecionados.
                       </td>
                     </tr>
@@ -488,11 +505,16 @@ function AccountabilityPage() {
                     filteredMovements.map((mov) => {
                       const isReceita = mov.type === 'receita'
                       const linkedAct = actions.find((a) => a.id === mov.actionId)
+                      const movMark = latestMarkFor(fiscalMarks, mov.id, 'movimento')
+                      const movRowClass =
+                        movMark && movMark.status !== 'sem_ressalva'
+                          ? MARK_STATUS_META[movMark.status].rowClass
+                          : ''
 
                       return (
                         <tr
                           key={mov.id}
-                          className="hover:bg-muted/30 transition cursor-pointer"
+                          className={`hover:bg-muted/30 transition cursor-pointer ${movRowClass}`}
                           onClick={() => setDetailTarget({ movement: mov })}
                         >
                           <td className="p-3 font-medium text-foreground whitespace-nowrap">
@@ -536,6 +558,14 @@ function AccountabilityPage() {
                             }`}
                           >
                             {isReceita ? '+' : '-'} {formatCurrency(mov.amount)}
+                          </td>
+                          <td className="p-3 align-top" onClick={(e) => e.stopPropagation()}>
+                            <FiscalMarkCell
+                              targetId={mov.id}
+                              targetType="movimento"
+                              quarter={quarterOfISODate(mov.date)}
+                              myFiscalRole={myFiscalRole}
+                            />
                           </td>
                         </tr>
                       )
@@ -643,56 +673,72 @@ function AccountabilityPage() {
                     <th className="p-3">Forma de Pagamento</th>
                     <th className="p-3">Comprovante Ref</th>
                     <th className="p-3 text-right">Valor Pago (R$)</th>
+                    <th className="p-3">Análise Fiscal</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {paidRequests.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-muted-foreground">
+                      <td colSpan={9} className="p-8 text-center text-muted-foreground">
                         Nenhum pagamento liquidado no histórico.
                       </td>
                     </tr>
                   ) : (
-                    paidRequests.map((req) => (
-                      <tr
-                        key={req.id}
-                        className="hover:bg-muted/30 transition cursor-pointer"
-                        onClick={() => setDetailTarget({ request: req })}
-                      >
-                        <td className="p-3 whitespace-nowrap font-medium">
-                          {formatDate(req.paymentInfo?.paidAt || req.createdAt)}
-                        </td>
-                        <td className="p-3 font-semibold text-foreground whitespace-nowrap">
-                          {req.applicantName}
-                          <span className="block text-[10px] font-normal text-muted-foreground">
-                            {req.applicantRole}
-                          </span>
-                        </td>
-                        <td className="p-3 whitespace-nowrap">
-                          <Badge variant="outline" className="text-[10px] uppercase font-bold">
-                            {req.type}
-                          </Badge>
-                        </td>
-                        <td className="p-3 max-w-xs">{req.reason}</td>
-                        <td className="p-3 text-muted-foreground whitespace-nowrap">
-                          {req.authorizedBy}
-                        </td>
-                        <td className="p-3 whitespace-nowrap">
-                          <span className="font-semibold text-foreground">
-                            {req.paymentInfo?.paymentMethod || 'Pix'}
-                          </span>
-                          <span className="block text-[10px] text-muted-foreground">
-                            {req.paymentInfo?.referenceCode}
-                          </span>
-                        </td>
-                        <td className="p-3 text-primary whitespace-nowrap truncate max-w-[120px]">
-                          {req.receiptName || 'Anexo validado'}
-                        </td>
-                        <td className="p-3 text-right font-extrabold text-emerald-600 whitespace-nowrap">
-                          {formatCurrency(req.amount)}
-                        </td>
-                      </tr>
-                    ))
+                    paidRequests.map((req) => {
+                      const reqMark = latestMarkFor(fiscalMarks, req.id, 'pagamento')
+                      const reqRowClass =
+                        reqMark && reqMark.status !== 'sem_ressalva'
+                          ? MARK_STATUS_META[reqMark.status].rowClass
+                          : ''
+                      return (
+                        <tr
+                          key={req.id}
+                          className={`hover:bg-muted/30 transition cursor-pointer ${reqRowClass}`}
+                          onClick={() => setDetailTarget({ request: req })}
+                        >
+                          <td className="p-3 whitespace-nowrap font-medium">
+                            {formatDate(req.paymentInfo?.paidAt || req.createdAt)}
+                          </td>
+                          <td className="p-3 font-semibold text-foreground whitespace-nowrap">
+                            {req.applicantName}
+                            <span className="block text-[10px] font-normal text-muted-foreground">
+                              {req.applicantRole}
+                            </span>
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            <Badge variant="outline" className="text-[10px] uppercase font-bold">
+                              {req.type}
+                            </Badge>
+                          </td>
+                          <td className="p-3 max-w-xs">{req.reason}</td>
+                          <td className="p-3 text-muted-foreground whitespace-nowrap">
+                            {req.authorizedBy}
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            <span className="font-semibold text-foreground">
+                              {req.paymentInfo?.paymentMethod || 'Pix'}
+                            </span>
+                            <span className="block text-[10px] text-muted-foreground">
+                              {req.paymentInfo?.referenceCode}
+                            </span>
+                          </td>
+                          <td className="p-3 text-primary whitespace-nowrap truncate max-w-[120px]">
+                            {req.receiptName || 'Anexo validado'}
+                          </td>
+                          <td className="p-3 text-right font-extrabold text-emerald-600 whitespace-nowrap">
+                            {formatCurrency(req.amount)}
+                          </td>
+                          <td className="p-3 align-top" onClick={(e) => e.stopPropagation()}>
+                            <FiscalMarkCell
+                              targetId={req.id}
+                              targetType="pagamento"
+                              quarter={quarterOfISODate(req.paymentInfo?.paidAt || req.createdAt)}
+                              myFiscalRole={myFiscalRole}
+                            />
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>

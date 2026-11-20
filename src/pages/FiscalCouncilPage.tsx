@@ -11,10 +11,9 @@ import {
   FileText,
   Vote,
   Users,
-  Building2,
-  Lock,
-  MessageSquare,
-  BadgeAlert,
+  CalendarRange,
+  Check,
+  Plus,
 } from 'lucide-react'
 import {
   Card,
@@ -39,17 +38,38 @@ import {
 } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { Link } from 'react-router-dom'
+import { FiscalMarkCell, FiscalReportButton, OpenPendingsCard } from '@/components/FiscalMarking'
+import {
+  FISCAL_MEMBER_ROLES,
+  QUARTER_LABELS,
+  assignedQuarterOf,
+  type FiscalMemberRole,
+} from '@/lib/fiscal'
 
 export default function FiscalCouncilPage() {
   const {
     currentProfile,
     fiscalPeriods,
+    fiscalQuarterPlan,
     castFiscalVote,
+    updateFiscalQuarterPlan,
     isFiscalMember,
     setCurrentProfile,
     profiles,
   } = useApp()
   const { toast } = useToast()
+
+  const myQuarter = isFiscalMember
+    ? assignedQuarterOf(fiscalQuarterPlan, currentProfile.role as FiscalMemberRole)
+    : null
+
+  const handleToggleOwner = (quarter: 1 | 2 | 3 | 4, role: FiscalMemberRole) => {
+    const current = fiscalQuarterPlan.assignments[String(quarter)] ?? []
+    const next = current.includes(role) ? current.filter((r) => r !== role) : [...current, role]
+    updateFiscalQuarterPlan({
+      assignments: { ...fiscalQuarterPlan.assignments, [String(quarter)]: next },
+    })
+  }
 
   // Voting modal
   const [selectedPeriodForVote, setSelectedPeriodForVote] = useState<FiscalAccountPeriod | null>(
@@ -183,8 +203,9 @@ export default function FiscalCouncilPage() {
           </p>
         </div>
 
-        {/* Quick switch between council members to test easily */}
+        {/* Report + quick switch between council members to test easily */}
         <div className="flex items-center gap-2 flex-wrap">
+          <FiscalReportButton defaultQuarter={myQuarter ?? 1} />
           <span className="text-xs text-muted-foreground hidden sm:inline">
             Simular Conselheiro:
           </span>
@@ -249,6 +270,83 @@ export default function FiscalCouncilPage() {
         </Card>
       )}
 
+      {/* Quadrimester plan + pendings + report */}
+      <div className="space-y-4">
+        <Card className="border-blue-200 dark:border-blue-900">
+          <CardHeader className="p-4 pb-2">
+            <CardTitle className="text-sm font-bold flex items-center gap-2">
+              <CalendarRange className="w-4 h-4 text-blue-600" />
+              Divisão Quadrimestral da Auditoria — Exercício {fiscalQuarterPlan.year}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Cada conselheiro titular responde por um quadrimestre (1º Jan–Abr, 2º Mai–Ago, 3º
+              Set–Dez); o 4º quadrimestre — fechamento do exercício — é analisado em conjunto
+              (colegiado). Clique nos quadrimestres abaixo para ajustar a titularidade.
+            </p>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {([1, 2, 3, 4] as const).map((q) => {
+                const owners = (fiscalQuarterPlan.assignments[String(q)] ??
+                  []) as FiscalMemberRole[]
+                return (
+                  <div
+                    key={q}
+                    className={`p-3 rounded-lg border text-xs space-y-2 ${
+                      myQuarter === q
+                        ? 'border-blue-400 bg-blue-50/50 dark:bg-blue-950/30'
+                        : 'bg-card'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-bold text-foreground">{QUARTER_LABELS[q]}</span>
+                      {myQuarter === q && (
+                        <Badge className="text-[9px] bg-blue-600 text-white">
+                          Seu quadrimestre
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      {FISCAL_MEMBER_ROLES.map((role) => {
+                        const isOwner = owners.includes(role)
+                        const name =
+                          profiles
+                            .find((p) => p.role === role)
+                            ?.name?.split(' ')
+                            .slice(-1)[0] ?? role
+                        return (
+                          <button
+                            key={role}
+                            type="button"
+                            onClick={() => handleToggleOwner(q, role)}
+                            className={`w-full flex items-center justify-between gap-1 px-2 py-1 rounded border text-[11px] transition ${
+                              isOwner
+                                ? 'bg-blue-600 text-white border-blue-700 font-semibold'
+                                : 'bg-muted/30 text-muted-foreground border-muted hover:bg-muted/60'
+                            }`}
+                          >
+                            <span>{name}</span>
+                            {isOwner ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {isFiscalMember && myQuarter && (
+              <p className="text-[11px] text-muted-foreground">
+                Você é responsável pelas marcações do <strong>{QUARTER_LABELS[myQuarter]}</strong>.
+                Nos demais quadrimestres, suas marcas ficam em somente leitura.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <OpenPendingsCard />
+      </div>
+
       {/* The 3 Council Members Cards */}
       <div>
         <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5">
@@ -275,6 +373,18 @@ export default function FiscalCouncilPage() {
                   <div>
                     <p className="font-bold text-foreground">{p?.name || member.defaultName}</p>
                     <p className="text-[11px] text-muted-foreground">{member.title}</p>
+                    <p className="text-[11px] text-blue-700 dark:text-blue-400 font-medium mt-0.5">
+                      {assignedQuarterOf(fiscalQuarterPlan, member.roleKey as FiscalMemberRole)
+                        ? `Responsável: ${
+                            QUARTER_LABELS[
+                              assignedQuarterOf(
+                                fiscalQuarterPlan,
+                                member.roleKey as FiscalMemberRole,
+                              )!
+                            ]
+                          }`
+                        : '4º quadrimestre (colegiado)'}
+                    </p>
                   </div>
                 </div>
                 {isMe && (

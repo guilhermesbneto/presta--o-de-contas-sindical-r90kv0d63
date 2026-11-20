@@ -1,8 +1,10 @@
 // Dados e lógica de domínio do Conselho Fiscal:
-// divisão trimestral da auditoria e marcas individuais de lançamentos
-// (sem ressalva / com ressalva / reprovado), que alimentam o parecer consolidado.
+// divisão QUADRIMESTRAL da auditoria (1º, 2º, 3º e 4º quadrimestres do exercício)
+// e marcas individuais de lançamentos (sem ressalva / com ressalva / reprovado),
+// que alimentam o parecer consolidado e o controle de respostas da Diretoria Executiva.
+// Obs.: TRIMESTRAIS são os relatórios de atividades da Diretoria Executiva — não confundir.
 
-import type { FiscalAccountPeriod, FiscalMarkStatus } from '@/types'
+import type { FiscalMarkStatus } from '@/types'
 
 export type FiscalMarkTargetType = 'movimento' | 'pagamento'
 
@@ -17,20 +19,33 @@ export interface FiscalMovementMark {
   markedBy: string
   markedByRole: string
   markedAt: string
-  /** trimestre do exercício (1-4) em que a marca foi registrada */
+  /** quadrimestre do exercício (1-4) em que a marca foi registrada */
   quarter: 1 | 2 | 3 | 4
+  /** Prazo (ISO yyyy-mm-dd) para a Diretoria Executiva responder/regularizar */
+  responseDueDate?: string
+  /** Resposta/regularização registrada pela Diretoria Executiva */
+  boardResponse?: {
+    respondedBy: string
+    respondedByRole: string
+    respondedAt: string
+    message: string
+  }
 }
 
+/** Situação da pendência de resposta da Diretoria Executiva */
+export type MarkResponseStatus = 'sem_prazo' | 'em_aberto' | 'vencida' | 'regularizada'
+
 /**
- * Plano do exercício: trimestre(s) sob responsabilidade de cada conselheiro.
- * O 4º trimestre é analisado em conjunto (revisão colegiada) ou redistribuído — editável.
+ * Plano do exercício: quadrimestre(s) sob responsabilidade de cada conselheiro.
+ * Os 1º, 2º e 3º quadrimestres têm um conselheiro titular cada; o 4º
+ * (fechamento do exercício) é analisado em conjunto — editável pelo colegiado.
  */
 export interface FiscalQuarterPlan {
   id: string
   year: number
-  /** role do conselheiro ('conselho_fiscal_1' | 2 | 3) ou 'conjunto' p/ revisão colegiada */
+  /** role do conselheiro por quadrimestre; 'conjunto' = todos os membros (colegiado) */
   assignments: Record<string, ('conselho_fiscal_1' | 'conselho_fiscal_2' | 'conselho_fiscal_3')[]>
-  /** true quando o conselheiro pode marcar lançamentos deste trimestre */
+  /** true enquanto o exercício está aberto para marcação de lançamentos */
   openForMarking: boolean
 }
 
@@ -43,21 +58,26 @@ export const FISCAL_MEMBER_ROLES: FiscalMemberRole[] = [
 ]
 
 export const QUARTER_LABELS: Record<1 | 2 | 3 | 4, string> = {
-  1: '1º Trimestre (Jan–Mar)',
-  2: '2º Trimestre (Abr–Jun)',
-  3: '3º Trimestre (Jul–Set)',
-  4: '4º Trimestre (Out–Dez)',
+  1: '1º Quadrimestre (Jan–Abr)',
+  2: '2º Quadrimestre (Mai–Ago)',
+  3: '3º Quadrimestre (Set–Dez)',
+  4: '4º Quadrimestre — Fechamento do Exercício (colegiado)',
 }
 
 export const QUARTER_SHORT: Record<1 | 2 | 3 | 4, string> = {
-  1: '1º Tri',
-  2: '2º Tri',
-  3: '3º Tri',
-  4: '4º Tri',
+  1: '1º Quadri',
+  2: '2º Quadri',
+  3: '3º Quadri',
+  4: '4º Quadri (colegiado)',
 }
 
-/** Mês (1-12) em que cada trimestre do exercício se inicia. */
-export const QUARTER_START_MONTH: Record<1 | 2 | 3 | 4, number> = { 1: 1, 2: 4, 3: 7, 4: 10 }
+/** Mês (1-12) de início e fim de cada quadrimestre. O 4º cobre o exercício inteiro (fechamento). */
+export const QUARTER_MONTH_RANGE: Record<1 | 2 | 3 | 4, { from: number; to: number }> = {
+  1: { from: 1, to: 4 },
+  2: { from: 5, to: 8 },
+  3: { from: 9, to: 12 },
+  4: { from: 1, to: 12 },
+}
 
 export const MARK_STATUS_META: Record<
   FiscalMarkStatus,
@@ -85,18 +105,19 @@ export const MARK_STATUS_META: Record<
   },
 }
 
-/** Trimestre do exercício a que pertence uma data ISO (yyyy-mm-dd). */
+/** Quadrimestre do exercício a que pertence uma data ISO (yyyy-mm-dd). */
 export function quarterOfISODate(isoDate: string): 1 | 2 | 3 | 4 {
   const month = Number(isoDate.slice(5, 7))
-  return (Math.floor((month - 1) / 3) + 1) as 1 | 2 | 3 | 4
+  if (month <= 4) return 1
+  if (month <= 8) return 2
+  return 3
 }
 
 export function quarterRange(quarter: 1 | 2 | 3 | 4, year: number): { start: string; end: string } {
-  const m0 = QUARTER_START_MONTH[quarter]
-  const start = `${year}-${String(m0).padStart(2, '0')}-01`
-  const endMonth = m0 + 2
-  const days = new Date(year, endMonth, 0).getDate()
-  const end = `${year}-${String(endMonth).padStart(2, '0')}-${String(days).padStart(2, '0')}`
+  const { from, to } = QUARTER_MONTH_RANGE[quarter]
+  const start = `${year}-${String(from).padStart(2, '0')}-01`
+  const days = new Date(year, to, 0).getDate()
+  const end = `${year}-${String(to).padStart(2, '0')}-${String(days).padStart(2, '0')}`
   return { start, end }
 }
 
@@ -105,9 +126,9 @@ export function isQuarterOpenForMarking(plan: FiscalQuarterPlan | null | undefin
 }
 
 /**
- * Conselheiro responsável por um trimestre no plano do exercício.
- * Cada membro titular tem exatamente um trimestre próprio; o 4º é revisado
- * em conjunto (atribuição 'conjunto' distribuída a todos os membros).
+ * Conselheiro responsável por um quadrimestre no plano do exercício.
+ * Cada membro titular tem exatamente um quadrimestre próprio; o 4º
+ * (fechamento) é revisado em conjunto pelos três membros.
  */
 export function assignedQuarterOf(
   plan: FiscalQuarterPlan | null | undefined,
@@ -117,12 +138,21 @@ export function assignedQuarterOf(
   for (const q of ['1', '2', '3', '4'] as const) {
     const owners = plan.assignments[q]
     if (owners?.length === 1 && owners[0] === memberRole) return Number(q) as 1 | 2 | 3 | 4
-    // No trimestre 4 (colegiado), qualquer membro pode marcar — mas sem "trimestre próprio"
   }
   return null
 }
 
-/** O conselheiro pode marcar lançamentos deste trimestre? */
+/** Rótulo curto do quadrimestre designado a um conselheiro no plano. */
+export function assignedQuarterLabel(
+  plan: FiscalQuarterPlan | null | undefined,
+  memberRole: FiscalMemberRole,
+): string {
+  const q = assignedQuarterOf(plan, memberRole)
+  if (!q) return 'Revisão colegiada (4º quadrimestre)'
+  return QUARTER_SHORT[q]
+}
+
+/** O conselheiro pode marcar lançamentos deste quadrimestre? */
 export function canMarkQuarter(
   plan: FiscalQuarterPlan | null | undefined,
   memberRole: FiscalMemberRole,
@@ -130,12 +160,12 @@ export function canMarkQuarter(
 ): boolean {
   if (!plan || !plan.openForMarking) return false
   const owners = plan.assignments[String(quarter)] ?? []
-  // responsável próprio OU revisão em conjunto (4º trimestre)
+  // responsável próprio OU revisão em conjunto (4º quadrimestre — fechamento)
   return owners.includes(memberRole)
 }
 
 /**
- * Marcas existentes de um lançamento (movimentação ou pagamento) para um trimestre.
+ * Marcas existentes de um lançamento (movimentação ou pagamento).
  */
 export function marksForTarget(
   marks: FiscalMovementMark[],
@@ -155,7 +185,7 @@ export function latestMarkFor(
   return all.slice().sort((a, b) => b.markedAt.localeCompare(a.markedAt))[0]
 }
 
-/** Marcas com destaque (com_ressalva ou reprovado), agrupadas por trimestre. */
+/** Marcas com destaque (com_ressalva ou reprovado), agrupadas por quadrimestre. */
 export function notableMarksGroupedByQuarter(marks: FiscalMovementMark[]) {
   const notable = marks.filter((m) => m.status !== 'sem_ressalva')
   const byQuarter = new Map<1 | 2 | 3 | 4, FiscalMovementMark[]>()
@@ -167,33 +197,47 @@ export function notableMarksGroupedByQuarter(marks: FiscalMovementMark[]) {
   return byQuarter
 }
 
-export interface FiscalPeriodReview {
-  memberId: FiscalMemberRole
-  memberName: string
-  decision: 'aprovado' | 'aprovado_com_ressalva' | 'reprovado'
-  justification: string
-  votedAt: string
-  quarter: 1 | 2 | 3 | 4
+/**
+ * Situação da pendência de resposta da Diretoria Executiva para uma marca.
+ * 'vencida' = prazo passado sem resposta; 'regularizada' = diretoria já respondeu.
+ */
+export function markResponseStatus(
+  mark: FiscalMovementMark,
+  today: string = new Date().toISOString().slice(0, 10),
+): MarkResponseStatus {
+  if (mark.status === 'sem_ressalva') return 'sem_prazo'
+  if (mark.boardResponse?.message?.trim()) return 'regularizada'
+  if (mark.responseDueDate && mark.responseDueDate < today) return 'vencida'
+  return 'em_aberto'
 }
 
-/** Pareceres individuais de um período, com o trimestre designado a cada conselheiro. */
-export function periodReviewsWithQuarters(
-  period: FiscalAccountPeriod,
-  plan: FiscalQuarterPlan | null | undefined,
-): FiscalPeriodReview[] {
-  const votes = Object.values(period.votes) as {
-    councilMemberId: FiscalMemberRole
-    councilMemberName: string
-    decision: 'aprovado' | 'aprovado_com_ressalva' | 'reprovado'
-    justification: string
-    votedAt: string
-  }[]
-  return votes.map((v) => ({
-    memberId: v.councilMemberId,
-    memberName: v.councilMemberName,
-    decision: v.decision,
-    justification: v.justification,
-    votedAt: v.votedAt,
-    quarter: assignedQuarterOf(plan, v.councilMemberId) ?? 1,
-  }))
+export const MARK_RESPONSE_STATUS_META: Record<
+  MarkResponseStatus,
+  { label: string; badgeClass: string }
+> = {
+  sem_prazo: { label: '—', badgeClass: '' },
+  em_aberto: {
+    label: 'Resposta pendente',
+    badgeClass: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950 dark:text-blue-300',
+  },
+  vencida: {
+    label: 'Prazo vencido',
+    badgeClass: 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300',
+  },
+  regularizada: {
+    label: 'Regularizada pela Diretoria',
+    badgeClass:
+      'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300',
+  },
+}
+
+/** Pendências em aberto (sem resposta) para acompanhamento antes do relatório anual. */
+export function openPendingMarks(marks: FiscalMovementMark[]): FiscalMovementMark[] {
+  return marks
+    .filter((m) => m.status !== 'sem_ressalva')
+    .filter((m) => {
+      const st = markResponseStatus(m)
+      return st === 'em_aberto' || st === 'vencida'
+    })
+    .sort((a, b) => (a.responseDueDate ?? '9999').localeCompare(b.responseDueDate ?? '9999'))
 }

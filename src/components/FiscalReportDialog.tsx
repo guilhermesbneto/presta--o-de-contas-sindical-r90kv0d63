@@ -4,8 +4,10 @@ import { formatCurrency, formatDate, formatDateTime } from '@/lib/formatters'
 import {
   QUARTER_LABELS,
   MARK_STATUS_META,
+  MARK_RESPONSE_STATUS_META,
   quarterRange,
   latestMarkFor,
+  markResponseStatus,
   type FiscalMarkTargetType,
 } from '@/lib/fiscal'
 import type { ActionMovement, ExpenseRequest, FiscalAccountPeriod } from '@/types'
@@ -23,14 +25,14 @@ import { AlertTriangle, CheckCircle2, Printer, XCircle, Scale } from 'lucide-rea
 interface FiscalReportDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Trimestre em análise (1-4). */
+  /** Quadrimestre em análise (1-4). */
   quarter: 1 | 2 | 3 | 4
   year: number
   /** Prestação de contas vinculada, quando o relatório é emitido a partir dela. */
   period?: FiscalAccountPeriod | null
 }
 
-/** Relatório do trimestre analisado pelo Conselho Fiscal (visível a todos, imprimível). */
+/** Relatório do quadrimestre analisado pelo Conselho Fiscal (visível a todos, imprimível). */
 export function FiscalReportDialog({
   open,
   onOpenChange,
@@ -60,7 +62,7 @@ export function FiscalReportDialog({
     [requests, range.start, range.end],
   )
 
-  // Marcas do trimestre (exemplo inclui marcas cujo lançamento pode ter sido excluído)
+  // Marcas do quadrimestre (exemplo inclui marcas cujo lançamento pode ter sido excluído)
   const quarterMarks = useMemo(
     () => fiscalMarks.filter((m) => m.quarter === quarter),
     [fiscalMarks, quarter],
@@ -120,7 +122,7 @@ export function FiscalReportDialog({
         <DialogHeader>
           <DialogTitle className="text-base font-bold flex items-center gap-2">
             <Scale className="w-5 h-5 text-blue-600" />
-            Relatório de Auditoria Trimestral — {QUARTER_LABELS[quarter]} de {year}
+            Relatório de Auditoria Quadrimestral — {QUARTER_LABELS[quarter]} de {year}
           </DialogTitle>
           <DialogDescription className="text-xs">
             Emitido pelo Conselho Fiscal · Período de {formatDate(range.start)} a{' '}
@@ -129,18 +131,18 @@ export function FiscalReportDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Resumo financeiro do trimestre */}
+        {/* Resumo financeiro do quadrimestre */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2 text-xs">
           <div className="p-3 rounded-lg border bg-emerald-50/40 dark:bg-emerald-950/20">
-            <p className="text-muted-foreground">Receitas do trimestre</p>
+            <p className="text-muted-foreground">Receitas do quadrimestre</p>
             <p className="text-sm font-bold text-emerald-600">{formatCurrency(totalIncome)}</p>
           </div>
           <div className="p-3 rounded-lg border bg-rose-50/40 dark:bg-rose-950/20">
-            <p className="text-muted-foreground">Despesas do trimestre</p>
+            <p className="text-muted-foreground">Despesas do quadrimestre</p>
             <p className="text-sm font-bold text-rose-600">{formatCurrency(totalExpense)}</p>
           </div>
           <div className="p-3 rounded-lg border bg-primary/5">
-            <p className="text-muted-foreground">Saldo do trimestre</p>
+            <p className="text-muted-foreground">Saldo do quadrimestre</p>
             <p className="text-sm font-bold text-primary">{formatCurrency(balance)}</p>
           </div>
         </div>
@@ -185,7 +187,7 @@ export function FiscalReportDialog({
           </h4>
           {notableMarks.length === 0 ? (
             <p className="text-xs text-muted-foreground italic p-3 border rounded-lg bg-muted/30">
-              Nenhum lançamento reprovado ou com ressalva registrado neste trimestre.
+              Nenhum lançamento reprovado ou com ressalva registrado neste quadrimestre.
             </p>
           ) : (
             <div className="space-y-2">
@@ -224,6 +226,29 @@ export function FiscalReportDialog({
                     <p className="mt-1.5 p-2 rounded bg-muted/40 border border-muted text-[11px]">
                       "{mark.comment}"
                     </p>
+                    {(mark.status === 'com_ressalva' || mark.status === 'reprovado') &&
+                      mark.responseDueDate && (
+                        <div className="mt-1.5 flex items-start gap-1.5 flex-wrap text-[10px]">
+                          <Badge
+                            variant="outline"
+                            className={`text-[9px] font-bold ${
+                              MARK_RESPONSE_STATUS_META[markResponseStatus(mark)].badgeClass
+                            }`}
+                          >
+                            {MARK_RESPONSE_STATUS_META[markResponseStatus(mark)].label}
+                          </Badge>
+                          <span className="text-muted-foreground">
+                            Prazo da Diretoria: {formatDate(mark.responseDueDate)}
+                          </span>
+                          {mark.boardResponse?.message && (
+                            <span className="w-full p-2 rounded bg-emerald-50/60 border border-emerald-200 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">
+                              Resposta da Diretoria ({mark.boardResponse.respondedBy},{' '}
+                              {formatDateTime(mark.boardResponse.respondedAt)}):{' '}
+                              {mark.boardResponse.message}
+                            </span>
+                          )}
+                        </div>
+                      )}
                   </div>
                 )
               })}
@@ -333,7 +358,7 @@ export function FiscalReportDialog({
                   {quarterMovements.length === 0 && quarterPayments.length === 0 && (
                     <tr>
                       <td colSpan={5} className="p-6 text-center text-muted-foreground">
-                        Nenhuma movimentação registrada neste trimestre.
+                        Nenhuma movimentação registrada neste quadrimestre.
                       </td>
                     </tr>
                   )}

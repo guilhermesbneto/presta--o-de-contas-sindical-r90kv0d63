@@ -20,7 +20,7 @@ import type {
 } from '@/types'
 import type { FiscalMovementMark, FiscalQuarterPlan } from '@/lib/fiscal'
 
-const STORAGE_KEY = 'sind-app-state-v3'
+const STORAGE_KEY = 'sind-app-state-v4'
 
 interface AppState {
   profile: UserProfile | null
@@ -68,6 +68,8 @@ interface AppContextValue extends AppState {
   updateFiscalQuarterPlan: (plan: FiscalQuarterPlan) => void
   upsertFiscalMark: (mark: Omit<FiscalMovementMark, 'id' | 'markedAt'>) => void
   removeFiscalMark: (markId: string) => void
+  respondFiscalMark: (markId: string, message: string) => void
+  resetAllData: () => void
   canAuthorizeAndPay: boolean
   canManageActions: boolean
   isFiscalMember: boolean
@@ -82,16 +84,35 @@ function loadState(): AppState {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as AppState
+      // Marcas antigas podem não ter prazo de resposta / resposta da diretoria
+      const normalized = (parsed.fiscalMarks ?? []).map((m) => ({
+        ...m,
+        responseDueDate: m.responseDueDate,
+        boardResponse: m.boardResponse,
+      }))
       return {
         ...parsed,
         profile: parsed.profile ?? null,
         fiscalQuarterPlan: parsed.fiscalQuarterPlan ?? INITIAL_FISCAL_QUARTER_PLAN,
-        fiscalMarks: parsed.fiscalMarks ?? INITIAL_FISCAL_MARKS,
+        fiscalMarks: normalized.length ? normalized : INITIAL_FISCAL_MARKS,
       }
     }
   } catch {
     // estado corrompido — recarrega dados de exemplo
   }
+  return {
+    profile: null,
+    actions: INITIAL_ACTIONS,
+    movements: INITIAL_MOVEMENTS,
+    requests: INITIAL_REQUESTS,
+    fiscalPeriods: INITIAL_FISCAL_PERIODS,
+    fiscalQuarterPlan: INITIAL_FISCAL_QUARTER_PLAN,
+    fiscalMarks: INITIAL_FISCAL_MARKS,
+  }
+}
+
+/** Recarrega os dados de exemplo (usado pelo botão "Restaurar Dados" da Navbar). */
+function resetDemoState(): AppState {
   return {
     profile: null,
     actions: INITIAL_ACTIONS,
@@ -339,6 +360,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ...s,
           fiscalMarks: s.fiscalMarks.filter((m) => m.id !== markId),
         })),
+      respondFiscalMark: (markId, message) =>
+        setState((s) => ({
+          ...s,
+          fiscalMarks: s.fiscalMarks.map((m) =>
+            m.id === markId
+              ? {
+                  ...m,
+                  boardResponse: {
+                    respondedBy: currentProfile.name,
+                    respondedByRole: currentProfile.roleLabel,
+                    respondedAt: new Date().toISOString(),
+                    message,
+                  },
+                }
+              : m,
+          ),
+        })),
+      resetAllData: () => setState(resetDemoState()),
       canAuthorizeAndPay: [
         'presidencia',
         'presidencia_substituto',
