@@ -2,6 +2,16 @@ import React, { useState } from 'react'
 import { useApp } from '@/context/AppContext'
 import { formatCurrency, formatDate } from '@/lib/formatters'
 import {
+  isDateInRange,
+  getPresetRange,
+  describePeriod,
+  type DateRange,
+  type PeriodPreset,
+} from '@/lib/period'
+import type { ActionMovement, ExpenseRequest, DirectoriaAction } from '@/types'
+import { PeriodFilterBar } from '@/components/PeriodFilterBar'
+import { DetailDialog } from '@/components/DetailDialog'
+import {
   BarChart3,
   TrendingUp,
   TrendingDown,
@@ -40,7 +50,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
 
-export default function AccountabilityPage() {
+function AccountabilityPage() {
   const { movements, actions, requests, addMovement, canAuthorizeAndPay, canManageActions } =
     useApp()
   const { toast } = useToast()
@@ -49,6 +59,24 @@ export default function AccountabilityPage() {
   const [search, setSearch] = useState('')
   const [selectedActionFilter, setSelectedActionFilter] = useState<string>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
+
+  // Period filter (default: current month)
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('mes_atual')
+  const [customRange, setCustomRange] = useState<DateRange | null>(null)
+  const activeRange = periodPreset === 'personalizado' ? customRange : getPresetRange(periodPreset)
+
+  const [detailTarget, setDetailTarget] = useState<{
+    movement?: ActionMovement
+    request?: ExpenseRequest
+  } | null>(null)
+
+  const detailAction: DirectoriaAction | undefined = detailTarget
+    ? actions.find((a) =>
+        detailTarget.request
+          ? a.id === detailTarget.request.actionId
+          : a.id === detailTarget.movement?.actionId,
+      )
+    : undefined
 
   // Movement insertion dialog (for Directoria / Finanças)
   const [isNewMovementOpen, setIsNewMovementOpen] = useState(false)
@@ -101,7 +129,7 @@ export default function AccountabilityPage() {
     setNewAmount('')
   }
 
-  // Filtered movements
+  // Filtered movements (period + search + type + action)
   const filteredMovements = movements.filter((mov) => {
     const matchesSearch =
       mov.description.toLowerCase().includes(search.toLowerCase()) ||
@@ -109,26 +137,39 @@ export default function AccountabilityPage() {
 
     const matchesAction = selectedActionFilter === 'all' || mov.actionId === selectedActionFilter
     const matchesType = typeFilter === 'all' || mov.type === typeFilter
+    const matchesPeriod = isDateInRange(mov.date, activeRange)
 
-    return matchesSearch && matchesAction && matchesType
+    return matchesSearch && matchesAction && matchesType && matchesPeriod
   })
 
-  // Financial aggregates
-  const totalReceitas = movements
+  // Financial aggregates (period-filtered)
+  const totalReceitas = filteredMovements
     .filter((m) => m.type === 'receita')
     .reduce((acc, m) => acc + m.amount, 0)
 
-  const totalDespesas = movements
+  const totalDespesas = filteredMovements
     .filter((m) => m.type === 'despesa')
     .reduce((acc, m) => acc + m.amount, 0)
 
   const saldo = totalReceitas - totalDespesas
 
-  // Paid requests (settled payments)
-  const paidRequests = requests.filter((r) => r.status === 'pago')
+  // Paid requests (settled payments), respecting the selected period
+  const paidRequests = requests.filter(
+    (r) => r.status === 'pago' && isDateInRange(r.paymentInfo?.paidAt || r.createdAt, activeRange),
+  )
+
+  const periodLabel = describePeriod(periodPreset, activeRange)
 
   return (
     <div className="space-y-6">
+      {/* Period filter */}
+      <PeriodFilterBar
+        preset={periodPreset}
+        onPresetChange={setPeriodPreset}
+        customRange={customRange}
+        onCustomRangeChange={setCustomRange}
+      />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -352,6 +393,10 @@ export default function AccountabilityPage() {
         </Card>
       </div>
 
+      <p className="text-[11px] text-muted-foreground -mt-2">
+        Período em análise: <strong className="text-foreground">{periodLabel}</strong>
+      </p>
+
       {/* Main Tabs */}
       <Tabs
         value={activeTab}
@@ -445,7 +490,11 @@ export default function AccountabilityPage() {
                       const linkedAct = actions.find((a) => a.id === mov.actionId)
 
                       return (
-                        <tr key={mov.id} className="hover:bg-muted/30 transition">
+                        <tr
+                          key={mov.id}
+                          className="hover:bg-muted/30 transition cursor-pointer"
+                          onClick={() => setDetailTarget({ movement: mov })}
+                        >
                           <td className="p-3 font-medium text-foreground whitespace-nowrap">
                             {formatDate(mov.date)}
                           </td>
@@ -605,7 +654,11 @@ export default function AccountabilityPage() {
                     </tr>
                   ) : (
                     paidRequests.map((req) => (
-                      <tr key={req.id} className="hover:bg-muted/30 transition">
+                      <tr
+                        key={req.id}
+                        className="hover:bg-muted/30 transition cursor-pointer"
+                        onClick={() => setDetailTarget({ request: req })}
+                      >
                         <td className="p-3 whitespace-nowrap font-medium">
                           {formatDate(req.paymentInfo?.paidAt || req.createdAt)}
                         </td>
@@ -647,6 +700,19 @@ export default function AccountabilityPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <DetailDialog
+        open={Boolean(detailTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDetailTarget(null)
+        }}
+        movement={detailTarget?.movement}
+        request={detailTarget?.request}
+        action={detailAction}
+        canSeeSensitive={canAuthorizeAndPay}
+      />
     </div>
   )
 }
+
+export default AccountabilityPage
